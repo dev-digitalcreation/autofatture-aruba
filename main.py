@@ -62,7 +62,12 @@ class UI:
 
         page.title = "Reversa"
         page.theme_mode = ft.ThemeMode.SYSTEM
-        page.theme = ft.Theme(color_scheme_seed=ft.Colors.GREEN)
+        page.theme = ft.Theme(
+            color_scheme_seed=ft.Colors.GREEN,
+            # scrollbar sempre visibile quando c'e' da scorrere: niente animazione di
+            # fade che rimane appesa (la barra orizzontale spariva troppo lentamente).
+            scrollbar_theme=ft.ScrollbarTheme(thumb_visibility=True, thickness=8,
+                                              radius=6, interactive=True))
         page.window.width = 1200
         page.window.height = 760
         page.window.min_width = 1000      # sotto questa soglia il layout resta usabile
