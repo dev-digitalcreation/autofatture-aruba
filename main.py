@@ -564,7 +564,7 @@ class UI:
         }
         from settings_flet import build_settings_dialog
         build_settings_dialog(self.page, self.cfg, on_save=self._dopo_impostazioni,
-                              prefill_fornitore=prefill, tab_index=2)
+                              prefill_fornitore=prefill, tab_index=2, fp=self.fp)
 
     # ---- validazione inline dei campi ----
     def _valida_campo(self, key, val):
@@ -715,7 +715,7 @@ class UI:
 
     def apri_impostazioni(self, e=None):
         from settings_flet import build_settings_dialog
-        build_settings_dialog(self.page, self.cfg, on_save=self._dopo_impostazioni)
+        build_settings_dialog(self.page, self.cfg, on_save=self._dopo_impostazioni, fp=self.fp)
 
     def _dopo_impostazioni(self, nuova):
         self.cfg = nuova

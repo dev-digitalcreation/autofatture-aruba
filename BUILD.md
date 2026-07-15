@@ -40,12 +40,13 @@ schema XSD per la validazione della Fase 1):
 flet pack main.py --name Reversa --product-name "Reversa" ^
   --copyright "Digital Creation" --company-name "Digital Creation" --icon assets/reversa.ico ^
   --hidden-import a38 --hidden-import pdfplumber --hidden-import dateutil --hidden-import lxml ^
+  --hidden-import openpyxl ^
   --add-data "schema:schema" --add-data "assets:assets" -y
 ```
 Output: `dist\Reversa.exe` (onefile).
 
-- `--hidden-import a38 pdfplumber dateutil lxml`: moduli con import dinamici che
-  PyInstaller non rileva da solo.
+- `--hidden-import a38 pdfplumber dateutil lxml openpyxl`: moduli con import dinamici che
+  PyInstaller non rileva da solo (`openpyxl` serve per l'import/export Excel dei fornitori).
 - `--add-data "schema:schema"`: **necessario** — include la cartella `schema/`
   (XSD FatturaPA) usata da `validazione.py` per validare l'XML nell'app.
 - `--add-data "assets:assets"`: **necessario** — logo/immagini usati dall'interfaccia

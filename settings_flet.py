@@ -24,9 +24,14 @@ def _titolo(t):
 
 
 def build_settings_dialog(page: ft.Page, cfg: dict, on_save=None,
-                          prefill_fornitore=None, tab_index=None):
+                          prefill_fornitore=None, tab_index=None, fp=None):
     cfg = copy.deepcopy(cfg)
     forn = config_io.carica_fornitori()
+    # FilePicker per import/export fornitori: riusa quello della UI o ne crea uno.
+    _fp = fp
+    if _fp is None:
+        _fp = ft.FilePicker()
+        page.services.append(_fp)
     az = cfg.setdefault("azienda", {})
     tr = cfg.setdefault("trasmittente", {})
     num = cfg.setdefault("numerazione", {})
@@ -57,7 +62,7 @@ def build_settings_dialog(page: ft.Page, cfg: dict, on_save=None,
 
     v["preset"] = ft.Dropdown(label="Intermediario / preset routing", width=280,
                               options=[ft.dropdown.Option(k) for k in config_io.ROUTING_PRESETS])
-    v["preset"].on_change = _applica_preset
+    v["preset"].on_select = _applica_preset      # Flet 0.86: Dropdown usa on_select, non on_change
     az_rows.append(ft.Text("Scegli un preset per compilare trasmittente e destinatario "
                            "(es. Aruba), oppure inseriscili a mano.", size=12,
                            color=ft.Colors.ON_SURFACE_VARIANT))
@@ -82,69 +87,207 @@ def build_settings_dialog(page: ft.Page, cfg: dict, on_save=None,
 
     # ---------------- scheda FORNITORI ----------------
     forn_state = dict(forn)
-    campi_f = [("chiave", "Chiave (testo nel PDF)"), ("denominazione", "Denominazione"),
-               ("id_paese", "IdPaese"), ("id_codice", "IdCodice"), ("indirizzo", "Indirizzo"),
-               ("numero_civico", "N. civico"), ("cap", "CAP"), ("comune", "Comune"),
-               ("nazione", "Nazione"), ("tipo_documento", "Tipo doc")]
-    vf = {}
-    dd = ft.Dropdown(label="Fornitore esistente", width=300,
+    TD_OPTS = ["TD16", "TD17", "TD18", "TD19"]
+    COLS_F = config_io.FORNITORI_COLS          # chiave + anagrafica
+
+    def _campi_forn():
+        """Crea i controlli di una scheda fornitore. Ritorna (dict_controlli, layout)."""
+        c = {
+            "chiave": _campo("Chiave (testo nel PDF)", "", 330),
+            "denominazione": _campo("Denominazione", "", 330),
+            "id_paese": _campo("IdPaese", "", 120),
+            "id_codice": _campo("IdCodice (P.IVA estera)", "", 200),
+            "indirizzo": _campo("Indirizzo", "", 330),
+            "numero_civico": _campo("N. civico", "", 120),
+            "cap": _campo("CAP", "", 120),
+            "comune": _campo("Comune", "", 200),
+            "nazione": _campo("Nazione", "", 120),
+            "tipo_documento": ft.Dropdown(label="Tipo doc", width=120, value="TD17",
+                                          options=[ft.dropdown.Option(x) for x in TD_OPTS]),
+        }
+        layout = ft.Column([
+            ft.Row([c["chiave"], c["tipo_documento"]], spacing=8, wrap=True),
+            ft.Row([c["denominazione"]], spacing=8, wrap=True),
+            ft.Row([c["id_paese"], c["id_codice"]], spacing=8, wrap=True),
+            ft.Row([c["indirizzo"], c["numero_civico"]], spacing=8, wrap=True),
+            ft.Row([c["cap"], c["comune"], c["nazione"]], spacing=8, wrap=True),
+        ], spacing=8, tight=True)
+        return c, layout
+
+    def _leggi(c):
+        """(chiave, anagrafica) dai controlli; l'anagrafica esclude i campi vuoti."""
+        chiave = (c["chiave"].value or "").strip().lower()
+        ana = {}
+        for k in COLS_F[1:]:
+            val = (c[k].value or "").strip()
+            if val:
+                ana[k] = val
+        ana.setdefault("tipo_documento", "TD17")
+        ana.setdefault("cap", "00000")
+        return chiave, ana
+
+    def _svuota(c):
+        for k in COLS_F:
+            c[k].value = ""
+        c["tipo_documento"].value = "TD17"
+        c["cap"].value = "00000"
+
+    def _riempi(c, chiave, ana):
+        c["chiave"].value = chiave
+        for k in COLS_F[1:]:
+            c[k].value = str(ana.get(k, "") or "")
+        c["tipo_documento"].value = ana.get("tipo_documento") or "TD17"
+
+    titolo_esist = _titolo(f"Fornitori esistenti ({len(forn_state)})")
+    msg_ie = ft.Text("", size=12, color=ft.Colors.PRIMARY)
+    msg_new = ft.Text("", size=12, color=ft.Colors.PRIMARY)
+    msg_edit = ft.Text("", size=12, color=ft.Colors.PRIMARY)
+
+    def _refresh_dd():
+        dd.options = [ft.dropdown.Option(k) for k in sorted(forn_state)]
+        titolo_esist.value = f"Fornitori esistenti ({len(forn_state)})"
+
+    # === Sezione 1: NUOVO fornitore ===
+    cn, layout_new = _campi_forn()
+
+    def forn_crea(e=None):
+        chiave, ana = _leggi(cn)
+        if not chiave:
+            msg_new.value = "Inserisci almeno la «Chiave» del nuovo fornitore."
+            page.update(); return
+        if chiave in forn_state:
+            msg_new.value = f"Esiste già un fornitore «{chiave}»: modificalo nella sezione sotto."
+            page.update(); return
+        forn_state[chiave] = ana
+        config_io.salva_fornitori(forn_state)
+        _svuota(cn)
+        _refresh_dd()
+        msg_new.value = f"Fornitore «{chiave}» creato e salvato."
+        page.update()
+
+    # === Sezione 2: fornitori ESISTENTI ===
+    ce, layout_edit = _campi_forn()
+    dd = ft.Dropdown(label="Seleziona un fornitore", width=330,
                      options=[ft.dropdown.Option(k) for k in sorted(forn_state)])
-    for k, lab in campi_f:
-        vf[k] = _campo(lab, "", 300)
+    sel = {"chiave": None}                      # chiave originale selezionata
 
     def load_forn(e=None):
-        d = forn_state.get(dd.value, {})
-        vf["chiave"].value = dd.value or ""
-        for k, _l in campi_f:
-            if k != "chiave":
-                vf[k].value = str(d.get(k, "") or "")
+        k = dd.value
+        sel["chiave"] = k
+        if k and k in forn_state:
+            _riempi(ce, k, forn_state[k])
+        msg_edit.value = ""
         page.update()
 
-    def forn_nuovo(e=None):
-        for k, _l in campi_f:
-            vf[k].value = ""
-        vf["tipo_documento"].value = "TD17"
-        vf["cap"].value = "00000"
-        dd.value = None
-        page.update()
+    dd.on_select = load_forn                     # Flet 0.86: Dropdown usa on_select, non on_change
 
-    def forn_applica(e=None):
-        key = (vf["chiave"].value or "").strip().lower()
-        if not key:
-            return
-        forn_state[key] = {k: (vf[k].value or "").strip() for k, _l in campi_f
-                           if k != "chiave" and (vf[k].value or "").strip()}
-        dd.options = [ft.dropdown.Option(k) for k in sorted(forn_state)]
-        dd.value = key
+    def forn_salva_mod(e=None):
+        orig = sel["chiave"]
+        if not orig:
+            msg_edit.value = "Seleziona prima un fornitore dall'elenco."
+            page.update(); return
+        nuova, ana = _leggi(ce)
+        if not nuova:
+            msg_edit.value = "La «Chiave» non può essere vuota."
+            page.update(); return
+        if nuova != orig:
+            forn_state.pop(orig, None)          # chiave rinominata
+        forn_state[nuova] = ana
+        sel["chiave"] = nuova
+        config_io.salva_fornitori(forn_state)
+        _refresh_dd()
+        dd.value = nuova
+        msg_edit.value = f"Modifiche a «{nuova}» salvate." + (" (chiave rinominata)" if nuova != orig else "")
         page.update()
 
     def forn_elimina(e=None):
-        key = (vf["chiave"].value or "").strip().lower()
-        if key in forn_state:
-            del forn_state[key]
-            dd.options = [ft.dropdown.Option(k) for k in sorted(forn_state)]
-            forn_nuovo()
-
-    dd.on_change = load_forn
-
-    # Precompilazione da "Salva come fornitore noto" (una riga della tabella)
-    if prefill_fornitore:
-        for k, _l in campi_f:
-            vf[k].value = str(prefill_fornitore.get(k, "") or "")
-        if not vf["tipo_documento"].value:
-            vf["tipo_documento"].value = "TD17"
-        if not vf["cap"].value:
-            vf["cap"].value = "00000"
+        orig = sel["chiave"]
+        if not orig or orig not in forn_state:
+            msg_edit.value = "Seleziona prima un fornitore dall'elenco."
+            page.update(); return
+        del forn_state[orig]
+        sel["chiave"] = None
         dd.value = None
+        _svuota(ce)
+        config_io.salva_fornitori(forn_state)
+        _refresh_dd()
+        msg_edit.value = f"Fornitore «{orig}» eliminato."
+        page.update()
+
+    # === Import / Export (.csv / .xlsx) ===
+    async def forn_esporta(e=None):
+        fmt = e.control.data                    # 'csv' | 'xlsx'
+        try:
+            dest = await _fp.save_file(dialog_title=f"Esporta fornitori ({fmt.upper()})",
+                                       file_name=f"fornitori.{fmt}",
+                                       file_type=ft.FilePickerFileType.CUSTOM, allowed_extensions=[fmt])
+        except Exception as ex:
+            msg_ie.value = f"Esportazione non disponibile: {ex}"; page.update(); return
+        if not dest:
+            return
+        if not dest.lower().endswith("." + fmt):
+            dest += "." + fmt
+        try:
+            config_io.esporta_fornitori(forn_state, dest)
+            msg_ie.value = f"{len(forn_state)} fornitori esportati in: {dest}"
+        except Exception as ex:
+            msg_ie.value = f"Errore esportazione: {ex}"
+        page.update()
+
+    async def forn_importa(e=None):
+        try:
+            res = await _fp.pick_files(dialog_title="Importa fornitori (CSV o Excel)",
+                                       allowed_extensions=["csv", "xlsx", "xlsm"])
+        except Exception as ex:
+            msg_ie.value = f"Selezione non disponibile: {ex}"; page.update(); return
+        if not res:
+            return
+        try:
+            nuovi = config_io.importa_fornitori(res[0].path)
+        except Exception as ex:
+            msg_ie.value = f"File non valido: {ex}"; page.update(); return
+        if not nuovi:
+            msg_ie.value = "Nessun fornitore trovato nel file."; page.update(); return
+        agg = sum(1 for k in nuovi if k in forn_state)
+        forn_state.update(nuovi)
+        config_io.salva_fornitori(forn_state)
+        _refresh_dd()
+        msg_ie.value = f"Importati {len(nuovi)} fornitori: {len(nuovi) - agg} nuovi, {agg} aggiornati (salvati)."
+        page.update()
+
+    # Precompilazione da "Salva come fornitore noto": va nella sezione «Nuovo»
+    if prefill_fornitore:
+        _riempi(cn, "", prefill_fornitore)
+        cn["chiave"].value = str(prefill_fornitore.get("denominazione", "") or "").strip().lower()
+        cn["tipo_documento"].value = prefill_fornitore.get("tipo_documento") or "TD17"
+        cn["cap"].value = str(prefill_fornitore.get("cap", "") or "") or "00000"
+
     view_forn = _scheda([
-        _titolo("Fornitori riconosciuti automaticamente"),
-        ft.Text("Seleziona un fornitore per modificarlo, o premi «Nuovo» per crearne uno.",
+        _titolo("Import / Export"),
+        ft.Text("Salva o carica l'elenco fornitori come CSV o Excel (.xlsx). "
+                "L'import aggiorna i fornitori con la stessa chiave e aggiunge i nuovi.",
+                size=12, color=ft.Colors.ON_SURFACE_VARIANT),
+        ft.Row([ft.OutlinedButton("Importa da file", icon=ft.Icons.UPLOAD_FILE, on_click=forn_importa),
+                ft.OutlinedButton("Esporta CSV", icon=ft.Icons.DOWNLOAD, data="csv", on_click=forn_esporta),
+                ft.OutlinedButton("Esporta Excel", icon=ft.Icons.GRID_ON, data="xlsx", on_click=forn_esporta)],
+               spacing=8, wrap=True),
+        msg_ie,
+        ft.Divider(),
+        _titolo("➕  Nuovo fornitore"),
+        ft.Text("La «Chiave» è il testo cercato nel PDF per riconoscere il fornitore (es. il nome).",
+                size=12, color=ft.Colors.ON_SURFACE_VARIANT),
+        layout_new,
+        ft.Row([ft.FilledButton("Crea fornitore", icon=ft.Icons.ADD, on_click=forn_crea)]),
+        msg_new,
+        ft.Divider(),
+        titolo_esist,
+        ft.Text("Seleziona un fornitore per vederne i dati, modificarli e salvarli.",
                 size=12, color=ft.Colors.ON_SURFACE_VARIANT),
         dd,
-        *[vf[k] for k, _l in campi_f],
-        ft.Row([ft.FilledTonalButton("Nuovo", icon=ft.Icons.ADD, on_click=forn_nuovo),
-                ft.FilledButton("Salva fornitore", icon=ft.Icons.CHECK, on_click=forn_applica),
+        layout_edit,
+        ft.Row([ft.FilledButton("Salva modifiche", icon=ft.Icons.SAVE, on_click=forn_salva_mod),
                 ft.OutlinedButton("Elimina", icon=ft.Icons.DELETE, on_click=forn_elimina)], spacing=8),
+        msg_edit,
     ])
 
     # ---------------- scheda NUMERAZIONE ----------------
