@@ -127,16 +127,21 @@ class UI:
         table = ft.Container(table_h, expand=True, padding=ft.Padding(left=16, top=0, right=8, bottom=8))
 
         # pannello anteprima PDF (a destra)
-        self.preview_titolo = ft.Text("Anteprima PDF", size=13, weight=ft.FontWeight.BOLD)
-        self.preview_img = ft.Image(src="", fit=ft.BoxFit.CONTAIN, visible=False)
+        self.preview_titolo = ft.Text("Anteprima PDF", size=13, weight=ft.FontWeight.BOLD, expand=True)
+        self.preview_zoom_btn = ft.IconButton(ft.Icons.ZOOM_IN, tooltip="Ingrandisci (popup)",
+                                              on_click=self.apri_anteprima_popup, disabled=True)
+        self.preview_img = ft.Image(src="", fit=ft.BoxFit.FIT_WIDTH, visible=False)
         self.preview_txt = ft.Text("Seleziona una riga (icona 👁) per vedere il PDF originale.",
                                    size=12, color=ft.Colors.ON_SURFACE_VARIANT, selectable=True)
         preview = ft.Container(
-            content=ft.Column([self.preview_titolo, ft.Divider(height=1),
-                               ft.Column([self.preview_img, self.preview_txt],
-                                         scroll=ft.ScrollMode.AUTO, expand=True)],
-                              spacing=6, expand=True),
-            width=360, padding=ft.Padding(left=8, top=0, right=16, bottom=8),
+            content=ft.Column([
+                ft.Row([self.preview_titolo, self.preview_zoom_btn],
+                       vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                ft.Divider(height=1),
+                ft.Column([self.preview_img, self.preview_txt],
+                          scroll=ft.ScrollMode.AUTO, expand=True)],
+                spacing=6, expand=True),
+            width=480, padding=ft.Padding(left=8, top=0, right=16, bottom=8),
             border=ft.Border(left=ft.BorderSide(1, ft.Colors.OUTLINE_VARIANT)))
 
         corpo = ft.Row([table, preview], expand=True, spacing=0,
@@ -305,28 +310,49 @@ class UI:
         self.page.update()
 
     # ---------------------------------------------------- Fase 2: revisione
+    def _png_size(self, png):
+        """Ritorna (w, h) in px del PNG, o (None, None)."""
+        try:
+            import io as _io
+            from PIL import Image as _PILImage
+            return _PILImage.open(_io.BytesIO(png)).size
+        except Exception:
+            return (None, None)
+
+    def _scrivi_png_temp(self, png, prefisso, tieni_precedente_attr=None):
+        import tempfile
+        pdir = os.path.join(tempfile.gettempdir(), "reversa_preview")
+        os.makedirs(pdir, exist_ok=True)
+        if tieni_precedente_attr:
+            prev = getattr(self, tieni_precedente_attr, None)
+            if prev and os.path.exists(prev):
+                try:
+                    os.remove(prev)
+                except OSError:
+                    pass
+        n = getattr(self, "_preview_n", 0) + 1
+        self._preview_n = n
+        outp = os.path.join(pdir, f"{prefisso}_{n}.png")
+        with open(outp, "wb") as f:
+            f.write(png)
+        return outp
+
     def mostra_anteprima(self, d):
         path = d.get("_path")
         nome = d.get("file") or "PDF"
         self.preview_titolo.value = f"Anteprima — {nome}"
-        if path and os.path.exists(path):
-            png = anteprima.render_png(path)
+        self._preview_path = path if (path and os.path.exists(path)) else None
+        self.preview_zoom_btn.disabled = self._preview_path is None
+        if self._preview_path:
+            png = anteprima.render_png(path, scale=2.0)
             if png:
-                import tempfile
-                pdir = os.path.join(tempfile.gettempdir(), "reversa_preview")
-                os.makedirs(pdir, exist_ok=True)
-                prev = getattr(self, "_preview_file", None)
-                if prev and os.path.exists(prev):
-                    try:
-                        os.remove(prev)
-                    except OSError:
-                        pass
-                self._preview_n = getattr(self, "_preview_n", 0) + 1
-                outp = os.path.join(pdir, f"prev_{self._preview_n}.png")
-                with open(outp, "wb") as f:
-                    f.write(png)
+                outp = self._scrivi_png_temp(png, "prev", tieni_precedente_attr="_preview_file")
                 self._preview_file = outp
+                w, h = self._png_size(png)
+                larghezza = 440
                 self.preview_img.src = outp
+                self.preview_img.width = larghezza
+                self.preview_img.height = int(larghezza * h / w) if (w and h) else None
                 self.preview_img.visible = True
                 self.preview_txt.visible = False
                 self.page.update()
@@ -342,6 +368,29 @@ class UI:
                                       + (("\n\n" + "\n".join(note)) if note else ""))
             self.preview_txt.visible = True
         self.page.update()
+
+    def apri_anteprima_popup(self, e=None):
+        path = getattr(self, "_preview_path", None)
+        if not path or not os.path.exists(path):
+            self._set_status("Nessun PDF da ingrandire: seleziona prima una riga con 👁.")
+            return
+        png = anteprima.render_png(path, scale=3.0)
+        if not png:
+            self._dialogo("Anteprima", "Impossibile renderizzare il PDF.")
+            return
+        outp = self._scrivi_png_temp(png, "pop", tieni_precedente_attr="_popup_file")
+        self._popup_file = outp
+        w, h = self._png_size(png)
+        disp_w = 900
+        img = ft.Image(src=outp, width=disp_w, fit=ft.BoxFit.FIT_WIDTH,
+                       height=int(disp_w * h / w) if (w and h) else None)
+        dlg = ft.AlertDialog(
+            title=ft.Text(f"Anteprima — {os.path.basename(path)}"),
+            content=ft.Container(
+                ft.Column([ft.Row([img], scroll=ft.ScrollMode.AUTO)], scroll=ft.ScrollMode.AUTO),
+                width=980, height=700),
+            actions=[ft.TextButton("Chiudi", on_click=lambda e: self.page.pop_dialog())])
+        self.page.show_dialog(dlg)
 
     def salva_fornitore_da_riga(self, d):
         self._sync()
@@ -760,6 +809,9 @@ def main(page: ft.Page):
         ui.valida_righe()
     if os.environ.get("AUTO_PREVIEW") and ui.data:
         ui.mostra_anteprima(ui.data[0])
+    if os.environ.get("AUTO_POPUP") and ui.data:
+        ui.mostra_anteprima(ui.data[0])
+        ui.apri_anteprima_popup()
     if os.environ.get("AUTO_SAVEFORN") and ui.data:
         ui.salva_fornitore_da_riga(ui.data[0])
     if os.environ.get("AUTO_WATCH"):            # avvia la sorveglianza su una cartella (test)
