@@ -319,13 +319,12 @@ class UI:
         for key, lab, _m in COLS:
             val = str(d.get(key, "") or "")
             if key == "file":
-                c = ft.TextField(value=val, width=w[key], height=40, text_size=12, dense=True, read_only=True)
+                c = ft.TextField(value=val, width=w[key], text_size=12, dense=True, read_only=True)
             elif key == "tipo_documento":
-                c = ft.Dropdown(value=val or "TD17", width=max(w[key], 104), height=40, text_size=12,
-                                dense=True, content_padding=ft.Padding(left=8, top=0, right=4, bottom=0),
+                c = ft.Dropdown(value=val or "TD17", width=max(w[key], 104), text_size=12, dense=True,
                                 options=[ft.dropdown.Option(x) for x in ("TD16", "TD17", "TD18", "TD19")])
             else:
-                c = ft.TextField(value=val, width=w[key], height=40, text_size=12, dense=True)
+                c = ft.TextField(value=val, width=w[key], text_size=12, dense=True)
                 if warn and key in ("denominazione", "id_paese", "id_codice", "imponibile") \
                         and (val in ("", "??") or "VERIFICA" in val.upper()):
                     c.border_color = WARN
@@ -346,7 +345,8 @@ class UI:
             ]),
         ], spacing=0)
         cells.append(ft.Container(azioni, width=80))
-        return ft.Row([self._icona_stato(d)] + cells, spacing=6)
+        return ft.Row([self._icona_stato(d)] + cells, spacing=6,
+                      vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
     def _icona_stato(self, d):
         """Icona di validazione della riga: verde=valido, rosso=errore, giallo=duplicato."""
