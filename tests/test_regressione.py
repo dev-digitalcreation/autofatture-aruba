@@ -27,10 +27,8 @@ sys.path.insert(0, ROOT)
 from lxml import etree  # noqa: E402
 import config_io  # noqa: E402
 import motore  # noqa: E402
+import validazione  # noqa: E402
 
-XSD_DIR = os.path.join(HERE, "xsd")
-MAIN_XSD = os.path.join(XSD_DIR, "Schema_FatturaPA_1.2.2.xsd")
-DSIG_XSD = os.path.join(XSD_DIR, "xmldsig-core-schema.xsd")
 GOLDEN = os.path.join(HERE, "golden", "TD17_atteso.xml")
 
 # --------------------------------------------------------------------------- #
@@ -73,21 +71,6 @@ def genera():
     return fname, xml
 
 
-class _LocalXSDResolver(etree.Resolver):
-    """Reindirizza l'import xmldsig (URL W3C) alla copia locale in tests/xsd/."""
-    def resolve(self, system_url, public_id, context):
-        if system_url and "xmldsig-core-schema" in system_url:
-            return self.resolve_filename(DSIG_XSD, context)
-        return None
-
-
-def _carica_schema():
-    parser = etree.XMLParser(no_network=True)
-    parser.resolvers.add(_LocalXSDResolver())
-    xsd_doc = etree.parse(MAIN_XSD, parser)
-    return etree.XMLSchema(xsd_doc)
-
-
 # --------------------------------------------------------------------------- #
 # Test
 # --------------------------------------------------------------------------- #
@@ -99,11 +82,10 @@ def test_xml_ben_formato():
 
 def test_valido_xsd():
     _fname, xml = genera()
-    schema = _carica_schema()
-    doc = etree.fromstring(xml)
-    if not schema.validate(doc):
-        errori = "\n".join(f"  - riga {e.line}: {e.message}" for e in schema.error_log)
-        raise AssertionError("XML NON valido contro l'XSD FatturaPA 1.2.2:\n" + errori)
+    ok, errori = validazione.valida_xml(xml)          # stesso codice usato dall'app
+    if not ok:
+        raise AssertionError("XML NON valido contro l'XSD FatturaPA 1.2.2:\n  - "
+                             + "\n  - ".join(errori))
 
 
 def test_importi_coerenti():

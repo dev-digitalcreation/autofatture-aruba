@@ -22,6 +22,8 @@ import motore
 import config_io
 import cambio
 import version
+import archivio
+import validazione
 
 OUTPUT_DEF = config_io.OUTPUT_DIR
 ACCENT = ft.Colors.GREEN
@@ -72,7 +74,7 @@ class UI:
         self.info = ft.Text(self._info_text(), size=12, color=ft.Colors.ON_SURFACE_VARIANT)
         self.status = ft.Text("Pronto. Aggiungi i PDF delle fatture passive.",
                               size=12, color=ft.Colors.ON_SURFACE_VARIANT)
-        self.start_field = ft.TextField(value=str(self.cfg.get("progressivo_start", 1)),
+        self.start_field = ft.TextField(value=str(self._numero_suggerito()),
                                         width=90, height=46, text_size=13, dense=True, label="Primo n.")
         self.data_field = ft.TextField(value="", width=150, height=46, text_size=13, dense=True,
                                        label="Data autofattura", hint_text="AAAA-MM-GG")
@@ -95,7 +97,9 @@ class UI:
                         ft.PopupMenuItem(content="Scuro", on_click=lambda e: self._tema("dark")),
                     ]),
                     ft.OutlinedButton("Impostazioni", icon=ft.Icons.SETTINGS, on_click=self.apri_impostazioni),
+                    ft.OutlinedButton("Registro IVA", icon=ft.Icons.RECEIPT_LONG, on_click=self.apri_registro_iva),
                     ft.FilledTonalButton("Aggiungi PDF", icon=ft.Icons.UPLOAD_FILE, on_click=self.aggiungi_pdf),
+                    ft.OutlinedButton("Valida", icon=ft.Icons.FACT_CHECK, on_click=self.valida_righe),
                     ft.FilledButton("Genera XML", icon=ft.Icons.BOLT, on_click=self.genera),
                 ], spacing=8),
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
@@ -206,7 +210,8 @@ class UI:
         w = self._larghezze()
         self.head_cells = {}
         header = ft.Row(
-            [self._cella_header(key, lab, w[key]) for key, lab, _m in COLS]
+            [ft.Container(width=26)]
+            + [self._cella_header(key, lab, w[key]) for key, lab, _m in COLS]
             + [ft.Container(width=44)], spacing=6)
         controls = [header]
         for d in self.data:
@@ -236,7 +241,25 @@ class UI:
         cells.append(ft.Container(
             ft.IconButton(ft.Icons.CLOSE, icon_size=16, tooltip="Rimuovi",
                           on_click=lambda e, dd=d: self._del_row(dd)), width=44))
-        return ft.Row(cells, spacing=6)
+        return ft.Row([self._icona_stato(d)] + cells, spacing=6)
+
+    def _icona_stato(self, d):
+        """Icona di validazione della riga: verde=valido, rosso=errore, giallo=duplicato."""
+        stato = d.get("_valid")
+        if stato is False:
+            ic = ft.Icon(ft.Icons.ERROR, color=ft.Colors.RED, size=18,
+                         tooltip="XML non valido:\n" + "\n".join(d.get("_valid_err", []))[:600])
+        elif d.get("_dup"):
+            dup = d["_dup"]
+            ic = ft.Icon(ft.Icons.WARNING_AMBER, color=WARN, size=18,
+                         tooltip=f"Gia' in archivio: n. {dup.get('numero','?')} "
+                                 f"({dup.get('data_registrazione','?')})")
+        elif stato is True:
+            ic = ft.Icon(ft.Icons.CHECK_CIRCLE, color=ft.Colors.GREEN, size=18, tooltip="XML valido")
+        else:
+            ic = ft.Icon(ft.Icons.RADIO_BUTTON_UNCHECKED, color=ft.Colors.OUTLINE, size=16,
+                         tooltip="Non ancora validato")
+        return ft.Container(ic, width=26, alignment=ft.Alignment.CENTER)
 
     def _del_row(self, d):
         self._sync()
@@ -327,62 +350,168 @@ class UI:
     def _dopo_impostazioni(self, nuova):
         self.cfg = nuova
         self.info.value = self._info_text()
-        self.start_field.value = str(self.cfg.get("progressivo_start", 1))
+        self.start_field.value = str(self._numero_suggerito())
         self.page.update()
         self._set_status("Impostazioni salvate.")
+
+    # ----- numerazione sicura / costruzione invoice / archivio ----------
+    def _start_int(self):
+        try:
+            return int(self.start_field.value)
+        except (ValueError, TypeError):
+            return None
+
+    def _numero_suggerito(self):
+        """Prossimo sezionale proposto in base all'archivio (fallback: config)."""
+        fallback = self.cfg.get("progressivo_start", 1)
+        try:
+            return archivio.prossimo_progressivo(fallback=fallback)
+        except Exception:
+            return fallback
+
+    def _riga_to_inv(self, d, data_glob):
+        """Costruisce l'invoice dal record-riga. Ritorna (inv, errore_o_None)."""
+        forn = dict(d.get("_extra", {}).get("fornitore", {}))
+        forn.update({"denominazione": (d.get("denominazione") or "").strip(),
+                     "id_paese": (d.get("id_paese") or "").strip(),
+                     "id_codice": (d.get("id_codice") or "").strip(),
+                     "nazione": forn.get("nazione") or (d.get("id_paese") or "").strip()})
+        imp = _to_float(d.get("imponibile"))
+        if imp is None:
+            return None, "imponibile mancante/non valido."
+        data_reg = data_glob or (d.get("data") or "").strip()
+        if not data_reg:
+            return None, "manca la data (compila «Data autofattura»)."
+        inv = {
+            "tipo_documento": (d.get("tipo_documento") or "TD17").strip(),
+            "data": data_reg,
+            "aliquota_iva": (d.get("aliquota_iva") or "22.00").strip(),
+            "imponibile": imp,
+            "num_fattura_originaria": (d.get("num_fattura_originaria") or "").strip(),
+            "data_fattura_originaria": (d.get("data_fattura_originaria") or "").strip() or None,
+            "fornitore": forn,
+            "righe": [{"descrizione": (d.get("descrizione") or "Servizio").strip(),
+                       "quantita": 1, "prezzo": imp}],
+        }
+        return inv, None
+
+    def _trova_dup(self, inv):
+        try:
+            return archivio.esiste_duplicato(inv["fornitore"].get("denominazione", ""),
+                                             inv.get("num_fattura_originaria", ""))
+        except Exception:
+            return None
+
+    def _anomalie_txt(self):
+        try:
+            an = archivio.anomalie_numerazione()
+        except Exception:
+            an = []
+        return ("  ⚠ " + " ".join(an)) if an else ""
+
+    def _registra_in_archivio(self, inv, prog, fname, imp2, al, iva, tot):
+        """Registra l'autofattura generata; non deve mai bloccare la generazione."""
+        try:
+            archivio.registra({
+                "progressivo": prog,
+                "numero": motore.numero_documento(self.cfg, inv, prog),
+                "tipo_documento": inv["tipo_documento"],
+                "fornitore": inv["fornitore"].get("denominazione", ""),
+                "fornitore_id": inv["fornitore"].get("id_codice", ""),
+                "num_fattura_originaria": inv.get("num_fattura_originaria", ""),
+                "data_fattura_originaria": inv.get("data_fattura_originaria") or "",
+                "data_registrazione": inv["data"],
+                "imponibile": float(imp2), "aliquota": str(al),
+                "imposta": float(iva), "totale": float(tot),
+                "valuta": "EUR", "filename": fname, "stato": "generata",
+            })
+        except Exception as ex:
+            self._set_status(f"Attenzione: archivio non aggiornato ({ex}).")
+
+    # ----- validazione per riga (verde/rosso) ---------------------------
+    def valida_righe(self, e=None):
+        if not self.data:
+            self._set_status("Nessuna riga da validare.")
+            return
+        self._sync()
+        start = self._start_int()
+        if start is None:
+            self._dialogo("Numerazione", "Il primo numero sezionale deve essere un intero.")
+            return
+        data_glob = (self.data_field.value or "").strip()
+        n_ok = n_ko = n_dup = 0
+        for i, d in enumerate(self.data):
+            inv, err = self._riga_to_inv(d, data_glob)
+            if err:
+                d["_valid"] = False; d["_valid_err"] = [err]; d["_dup"] = None
+                n_ko += 1
+                continue
+            try:
+                _fn, xml, _w = motore.genera_xml_bytes(inv, self.cfg, start + i)
+                ok, errs = validazione.valida_xml(xml)
+            except Exception as ex:
+                ok, errs = False, [str(ex)]
+            d["_valid"] = ok
+            d["_valid_err"] = errs
+            d["_dup"] = self._trova_dup(inv)
+            n_ok += 1 if ok else 0
+            n_ko += 0 if ok else 1
+            n_dup += 1 if d["_dup"] else 0
+        self._render_table()
+        extra = f" · {n_dup} già in archivio" if n_dup else ""
+        self._set_status(f"Validazione: {n_ok} valide, {n_ko} con errori{extra}.{self._anomalie_txt()}")
 
     def genera(self, e=None):
         if not self.data:
             self._dialogo("Genera XML", "Aggiungi almeno una fattura.")
             return
         self._sync()
-        try:
-            start = int(self.start_field.value)
-        except (ValueError, TypeError):
+        start = self._start_int()
+        if start is None:
             self._dialogo("Numerazione", "Il primo numero sezionale deve essere un intero.")
             return
         os.makedirs(self.output_dir, exist_ok=True)
         data_glob = (self.data_field.value or "").strip()
 
-        generati, errori, riepilogo = 0, [], []
+        generati, errori, duplicati, riepilogo = 0, [], [], []
         for i, d in enumerate(self.data):
             prog = start + i
-            forn = dict(d.get("_extra", {}).get("fornitore", {}))
-            forn.update({"denominazione": (d.get("denominazione") or "").strip(),
-                         "id_paese": (d.get("id_paese") or "").strip(),
-                         "id_codice": (d.get("id_codice") or "").strip(),
-                         "nazione": forn.get("nazione") or (d.get("id_paese") or "").strip()})
-            imp = _to_float(d.get("imponibile"))
-            if imp is None:
-                errori.append(f"Riga {i+1}: imponibile mancante/non valido.")
+            inv, err = self._riga_to_inv(d, data_glob)
+            if err:
+                d["_valid"] = False; d["_valid_err"] = [err]; d["_dup"] = None
+                errori.append(f"Riga {i+1}: {err}")
                 continue
-            data_reg = data_glob or (d.get("data") or "").strip()
-            if not data_reg:
-                errori.append(f"Riga {i+1}: manca la data (compila «Data autofattura»).")
-                continue
-            inv = {
-                "tipo_documento": (d.get("tipo_documento") or "TD17").strip(),
-                "data": data_reg,
-                "aliquota_iva": (d.get("aliquota_iva") or "22.00").strip(),
-                "imponibile": imp,
-                "num_fattura_originaria": (d.get("num_fattura_originaria") or "").strip(),
-                "data_fattura_originaria": (d.get("data_fattura_originaria") or "").strip() or None,
-                "fornitore": forn,
-                "righe": [{"descrizione": (d.get("descrizione") or "Servizio").strip(),
-                           "quantita": 1, "prezzo": imp}],
-            }
+            forn = inv["fornitore"]
             try:
                 fname, xml, _w = motore.genera_xml_bytes(inv, self.cfg, prog)
-                with open(os.path.join(self.output_dir, fname), "wb") as fh:
-                    fh.write(xml)
-                imp2, al, iva, tot = motore.calcola_importi(inv)
-                riepilogo.append([fname, inv["tipo_documento"],
-                                  motore.numero_documento(self.cfg, inv, prog), inv["data"],
-                                  forn["denominazione"], forn["id_paese"], f"{imp2}", f"{al}",
-                                  f"{iva}", f"{tot}", inv["num_fattura_originaria"]])
-                generati += 1
             except Exception as ex:
+                d["_valid"] = False; d["_valid_err"] = [str(ex)]; d["_dup"] = None
                 errori.append(f"Riga {i+1} ({forn.get('denominazione','?')}): {ex}")
+                continue
+            # Validazione XSD PRIMA di scrivere: un XML invalido non viene salvato.
+            ok, verrs = validazione.valida_xml(xml)
+            d["_valid"] = ok
+            d["_valid_err"] = verrs
+            if not ok:
+                errori.append(f"Riga {i+1} ({forn.get('denominazione','?')}): XML non valido — "
+                              + "; ".join(verrs[:3]))
+                continue
+            # Duplicato? avvisa ma genera comunque.
+            dup = self._trova_dup(inv)
+            d["_dup"] = dup
+            if dup:
+                duplicati.append(f"Riga {i+1} ({forn.get('denominazione','?')}, "
+                                 f"fatt. {inv.get('num_fattura_originaria') or '—'}): già in "
+                                 f"archivio come n. {dup.get('numero','?')}.")
+            with open(os.path.join(self.output_dir, fname), "wb") as fh:
+                fh.write(xml)
+            imp2, al, iva, tot = motore.calcola_importi(inv)
+            riepilogo.append([fname, inv["tipo_documento"],
+                              motore.numero_documento(self.cfg, inv, prog), inv["data"],
+                              forn["denominazione"], forn["id_paese"], f"{imp2}", f"{al}",
+                              f"{iva}", f"{tot}", inv["num_fattura_originaria"]])
+            self._registra_in_archivio(inv, prog, fname, imp2, al, iva, tot)
+            generati += 1
 
         if riepilogo:
             with open(os.path.join(self.output_dir, "riepilogo.csv"), "w", newline="", encoding="utf-8") as fh:
@@ -391,16 +520,74 @@ class UI:
                                "imponibile", "aliquota", "imposta", "totale", "rif_fattura"])
                 wcsv.writerows(riepilogo)
 
-        if self.cfg.get("ricorda_ultimo_numero", True) and generati:
+        if generati:
             self.cfg["progressivo_start"] = start + generati
-            config_io.salva_config(self.cfg)
-            self.start_field.value = str(self.cfg["progressivo_start"])
+            if self.cfg.get("ricorda_ultimo_numero", True):
+                config_io.salva_config(self.cfg)
+            self.start_field.value = str(self._numero_suggerito())
+        self._render_table()
 
         msg = f"Generati {generati} file XML in:\n{self.output_dir}"
+        if duplicati:
+            msg += "\n\n⚠ Possibili duplicati (già in archivio):\n• " + "\n• ".join(duplicati)
         if errori:
             msg += "\n\nDa correggere:\n• " + "\n• ".join(errori)
         self._dialogo("Genera XML", msg)
-        self._set_status(f"Generati {generati} XML" + (f" · {len(errori)} errori" if errori else " · nessun errore"))
+        self._set_status(f"Generati {generati} XML"
+                         + (f" · {len(duplicati)} duplicati" if duplicati else "")
+                         + (f" · {len(errori)} errori" if errori else " · nessun errore"))
+
+    # ----- Registro IVA -------------------------------------------------
+    def apri_registro_iva(self, e=None):
+        try:
+            righe = archivio.registro_iva()
+        except Exception as ex:
+            self._dialogo("Registro IVA", f"Impossibile leggere l'archivio: {ex}")
+            return
+
+        def _t(v, w, grassetto=False):
+            return ft.Container(ft.Text(str(v), size=12,
+                                        weight=ft.FontWeight.BOLD if grassetto else None), width=w)
+
+        corpo = [ft.Row([_t("Mese", 90, True), _t("N.", 40, True), _t("Imponibile", 110, True),
+                         _t("Imposta", 100, True), _t("Totale", 110, True)]), ft.Divider(height=1)]
+        ti = tv = tt = 0.0
+        for r in righe:
+            corpo.append(ft.Row([_t(r["mese"], 90), _t(r["n"], 40),
+                                 _t(f"{r['imponibile']:.2f}", 110), _t(f"{r['imposta']:.2f}", 100),
+                                 _t(f"{r['totale']:.2f}", 110)]))
+            ti += r["imponibile"]; tv += r["imposta"]; tt += r["totale"]
+        if righe:
+            corpo.append(ft.Divider(height=1))
+            corpo.append(ft.Row([_t("Totale", 90, True), _t("", 40), _t(f"{ti:.2f}", 110, True),
+                                 _t(f"{tv:.2f}", 100, True), _t(f"{tt:.2f}", 110, True)]))
+        else:
+            corpo.append(ft.Text("Nessuna autofattura in archivio.", size=12,
+                                 color=ft.Colors.ON_SURFACE_VARIANT))
+        dlg = ft.AlertDialog(
+            title=ft.Text("Registro IVA (autofatture generate)"),
+            content=ft.Container(ft.Column(corpo, scroll=ft.ScrollMode.AUTO, spacing=4),
+                                 width=520, height=400),
+            actions=[ft.TextButton("Chiudi", on_click=lambda e: self.page.pop_dialog()),
+                     ft.FilledButton("Esporta CSV", icon=ft.Icons.DOWNLOAD,
+                                     on_click=self._esporta_registro)])
+        self.page.show_dialog(dlg)
+
+    def _esporta_registro(self, e=None):
+        try:
+            righe = archivio.registro_iva()
+            os.makedirs(self.output_dir, exist_ok=True)
+            path = os.path.join(self.output_dir, "registro_iva.csv")
+            with open(path, "w", newline="", encoding="utf-8") as fh:
+                w = csv.writer(fh, delimiter=";")
+                w.writerow(["mese", "n_autofatture", "imponibile", "imposta", "totale"])
+                for r in righe:
+                    w.writerow([r["mese"], r["n"], f"{r['imponibile']:.2f}",
+                                f"{r['imposta']:.2f}", f"{r['totale']:.2f}"])
+            self.page.pop_dialog()
+            self._set_status(f"Registro IVA esportato: {path}")
+        except Exception as ex:
+            self._set_status(f"Errore esportazione registro: {ex}")
 
     def _dialogo(self, titolo, testo):
         dlg = ft.AlertDialog(title=ft.Text(titolo), content=ft.Text(testo),
@@ -437,6 +624,27 @@ def main(page: ft.Page):
         ui._resize(k, float(dx))
     if os.environ.get("AUTO_SETTINGS"):
         ui.apri_impostazioni()
+    if os.environ.get("AUTO_FAKEROW"):          # riga fittizia per test GUI (senza PDF)
+        ui.data.append({
+            "file": "esempio.pdf", "denominazione": "Foreign Supplier Ltd", "id_paese": "IE",
+            "id_codice": "IE1234567AB", "tipo_documento": "TD17", "imponibile": "100.00",
+            "aliquota_iva": "22.00", "num_fattura_originaria": "TEST-001",
+            "data_fattura_originaria": "2026-02-28", "data": "2026-03-15",
+            "descrizione": "Servizio di esempio",
+            "_extra": {"fornitore": {"denominazione": "Foreign Supplier Ltd", "id_paese": "IE",
+                                     "id_codice": "IE1234567AB", "indirizzo": "1 Test Street",
+                                     "cap": "00000", "comune": "Dublin", "nazione": "IE"}},
+            "_note": [],
+        })
+        ui._render_table()
+        if os.environ.get("AUTO_GEN"):
+            ui.output_dir = os.environ["AUTO_GEN"]
+            ui.cfg["ricorda_ultimo_numero"] = False
+            ui.genera()
+    if os.environ.get("AUTO_VALIDA"):
+        ui.valida_righe()
+    if os.environ.get("AUTO_REGISTRO"):
+        ui.apri_registro_iva()
 
 
 if __name__ == "__main__":

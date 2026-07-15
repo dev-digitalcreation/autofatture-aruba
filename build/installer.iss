@@ -3,7 +3,7 @@
 ; Aggiornare MyAppVersion ad ogni release (deve combaciare con version.py).
 
 #define MyAppName "Autofatture Aruba"
-#define MyAppVersion "1.0.0-beta.3"
+#define MyAppVersion "1.0.0-beta.4"
 #define MyAppPublisher "Digital Creation"
 #define MyAppExeName "AutofattureAruba.exe"
 

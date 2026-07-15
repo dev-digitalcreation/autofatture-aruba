@@ -13,14 +13,17 @@ test — nessun dato reale), genera un'autofattura **TD17** con il motore e cont
 4. **Confronto campo-per-campo col "golden"** — l'XML atteso è in `golden/TD17_atteso.xml`.
 
 ## Come si esegue
-Non servono dipendenze extra: usa solo `lxml` (già in `requirements.txt`).
+Non servono dipendenze extra: usa solo `lxml` (già in `requirements.txt`) e la
+libreria standard.
 
 ```
-python tests/test_regressione.py
+python tests/test_regressione.py     # motore + XSD + golden (rete di sicurezza, Fase 0)
+python tests/test_archivio.py         # archivio SQLite: duplicati, numerazione, registro IVA (Fase 1)
+python tests/test_validazione.py      # validazione XSD: accetta valido, rifiuta non conforme (Fase 1)
 ```
-Esce con codice `0` se tutto è verde, `1` se qualcosa fallisce.
+Ognuno esce con codice `0` se verde, `1` se qualcosa fallisce.
 
-Se hai `pytest` installato (facoltativo), funziona anche:
+Se hai `pytest` installato (facoltativo), li esegue tutti insieme:
 ```
 pytest tests/
 ```
@@ -35,8 +38,11 @@ python tests/test_regressione.py --update-golden
 ## Contenuto della cartella
 - `test_regressione.py` — il test (dati di esempio inclusi).
 - `golden/TD17_atteso.xml` — XML atteso per il confronto campo-per-campo.
-- `xsd/Schema_FatturaPA_1.2.2.xsd` — schema ufficiale FatturaPA v1.2.2
-  (fonte: <https://www.fatturapa.gov.it>), usato per la validazione.
-- `xsd/xmldsig-core-schema.xsd` — schema W3C XML-DSig importato dal precedente
-  (fonte: <https://www.w3.org/TR/xmldsig-core/>). Il test lo risolve in locale
-  senza accessi di rete.
+
+Gli schemi XSD stanno in `../schema/` (a livello di progetto, così vengono
+inclusi anche nell'exe) e la validazione usa il modulo runtime `validazione.py`
+— quindi il test valida con lo **stesso** codice usato dall'app:
+- `schema/Schema_FatturaPA_1.2.2.xsd` — schema ufficiale FatturaPA v1.2.2
+  (fonte: <https://www.fatturapa.gov.it>).
+- `schema/xmldsig-core-schema.xsd` — schema W3C XML-DSig importato dal precedente
+  (fonte: <https://www.w3.org/TR/xmldsig-core/>), risolto in locale senza rete.
