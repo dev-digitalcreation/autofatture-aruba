@@ -107,15 +107,16 @@ MESI = {"gennaio": 1, "febbraio": 2, "marzo": 3, "aprile": 4, "maggio": 5, "giug
         "january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6, "july": 7,
         "august": 8, "september": 9, "october": 10, "november": 11, "december": 12}
 
-# etichette importi
-LAB_IMPONIBILE = ["imponibile", "totale imponibile", "base imponibile", "base imponible",
-                  "subtotal", "sub-total", "sub total", "subtotale", "totale parziale",
-                  "net total", "net amount", "total net", "amount excl", "total excl",
-                  "totale netto", "importo netto", "montant ht", "nettobetrag", "zwischensumme"]
-LAB_TOTALE = ["amount due", "total due", "importo dovuto", "totale documento",
-              "totale fattura", "totale", "total amount", "grand total", "total",
-              "importo totale", "gesamtbetrag", "importe total", "montant total",
-              "total a pagar", "total à payer", "balance due", "importo"]
+# Totale finale della fattura, in ordine di priorità (vince il primo trovato)
+TOTALE = [
+    ["total due", "amount due", "importo dovuto", "balance due", "total a pagar", "total à payer"],
+    ["total invoice", "invoice total", "totale fattura", "totale documento"],
+    ["grand total", "importo totale", "total amount", "gesamtbetrag", "montant total", "importe total"],
+    ["totale", "total"],
+]
+# righe da NON confondere col totale finale (subtotali, netti, IVA, imponibili parziali)
+_ESCLUDI_TOT = ("subtotal", "sub-total", "sub total", "subtotale", "parziale",
+                "imponibil", "imponibl", "netto", "net", "excl", " ht", "iva", "vat")
 
 
 def _estrai_testo(path: str) -> str:
@@ -157,29 +158,26 @@ def _importi_riga(riga: str):
 
 
 def _trova_importo(testo: str):
-    """Imponibile: prima per etichetta (imponibile/subtotale, poi totale),
-    con fallback all'importo monetario piu' grande del documento."""
+    """Imponibile = TOTALE finale della fattura (Total Due / Amount due / Totale).
+    Ignora subtotali/netti/imponibili parziali. Ritorna (valore, incerto)."""
     righe = testo.splitlines()
-
-    def per_etichette(etichette):
+    for gruppo in TOTALE:
         for r in righe:
             rl = r.lower()
-            if any(et in rl for et in etichette):
+            if any(et in rl for et in gruppo) and not any(x in rl for x in _ESCLUDI_TOT):
                 vals = _importi_riga(r)
                 if vals:
-                    return vals[-1]
-        return None
-
-    v = per_etichette(LAB_IMPONIBILE)
-    if v is not None:
-        return v, False
-    v = per_etichette(LAB_TOTALE)
-    if v is not None:
-        return v, False
-    # fallback: importo piu' grande presente (spesso il totale)
+                    return vals[-1], False
+    # ripiego: fatture italiane che riportano solo "Imponibile"
+    for r in righe:
+        if "imponibil" in r.lower():
+            vals = _importi_riga(r)
+            if vals:
+                return vals[-1], False
+    # ultimo ripiego: importo piu' grande del documento (da verificare)
     tutti = [x for r in righe for x in _importi_riga(r)]
     if tutti:
-        return max(tutti), True   # True = incerto (da verificare)
+        return max(tutti), True
     return None, True
 
 
