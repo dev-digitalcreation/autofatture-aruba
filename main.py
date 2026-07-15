@@ -37,7 +37,7 @@ COLS = [
     ("denominazione", "Fornitore", 150),
     ("id_paese", "Paese", 60),
     ("id_codice", "P.IVA/ID", 110),
-    ("tipo_documento", "TD", 92),
+    ("tipo_documento", "TD", 104),
     ("imponibile", "Imponibile", 92),
     ("aliquota_iva", "Aliq%", 62),
     ("num_fattura_originaria", "N. fatt.", 100),
@@ -62,11 +62,21 @@ class UI:
 
         page.title = "Reversa"
         page.theme_mode = ft.ThemeMode.SYSTEM
-        page.theme = ft.Theme(color_scheme_seed=ft.Colors.GREEN)
-        page.window.width = 1360
-        page.window.height = 720
+        page.theme = ft.Theme(
+            color_scheme_seed=ft.Colors.GREEN,
+            # scrollbar sempre visibile quando c'e' da scorrere: niente animazione di
+            # fade che rimane appesa (la barra orizzontale spariva troppo lentamente).
+            scrollbar_theme=ft.ScrollbarTheme(thumb_visibility=True, thickness=8,
+                                              radius=6, interactive=True))
+        page.window.width = 1200
+        page.window.height = 760
+        page.window.min_width = 1000      # sotto questa soglia il layout resta usabile
+        page.window.min_height = 620
         page.padding = 0
+        page.on_resize = self._adatta     # colonne + anteprima si adattano alla finestra
 
+        self.preview_container = None
+        self._preview_on = True
         self.fp = ft.FilePicker()
         page.services.append(self.fp)
         self._build()
@@ -78,8 +88,8 @@ class UI:
                               size=12, color=ft.Colors.ON_SURFACE_VARIANT)
         self.start_field = ft.TextField(value=str(self._numero_suggerito()),
                                         width=90, height=46, text_size=13, dense=True, label="Primo n.")
-        self.data_field = ft.TextField(value="", width=150, height=46, text_size=13, dense=True,
-                                       label="Data autofattura", hint_text="AAAA-MM-GG")
+        self.data_field = ft.TextField(value="", width=190, height=46, text_size=13, dense=True,
+                                       label="Data autofattura", hint_text="GG-MM-AAAA")
 
         header = ft.Container(
             content=ft.Row([
@@ -99,6 +109,8 @@ class UI:
                         ft.PopupMenuItem(content="Chiaro", on_click=lambda e: self._tema("light")),
                         ft.PopupMenuItem(content="Scuro", on_click=lambda e: self._tema("dark")),
                     ]),
+                    ft.IconButton(ft.Icons.VIEW_SIDEBAR, tooltip="Mostra/nascondi anteprima PDF",
+                                  on_click=self.toggle_anteprima),
                     ft.OutlinedButton("Impostazioni", icon=ft.Icons.SETTINGS, on_click=self.apri_impostazioni),
                     ft.FilledTonalButton("Aggiungi PDF", icon=ft.Icons.UPLOAD_FILE, on_click=self.aggiungi_pdf),
                     ft.OutlinedButton("Valida", icon=ft.Icons.FACT_CHECK, on_click=self.valida_righe),
@@ -119,12 +131,15 @@ class UI:
             alignment=ft.Alignment.CENTER, on_click=self.aggiungi_pdf, ink=True,
         )
 
-        # tabella: Column interna (header + righe) con doppio scorrimento
+        # tabella: doppio scorrimento. La Row (scroll orizzontale) contiene la Column
+        # delle righe alla sua larghezza NATURALE, così le colonne scorrono invece di
+        # essere tagliate; la Column esterna (scroll verticale) gestisce l'altezza.
         self.table_inner = ft.Column([], spacing=4)
-        table_v = ft.Column([self.table_inner], scroll=ft.ScrollMode.AUTO, expand=True)
-        table_h = ft.Row([table_v], scroll=ft.ScrollMode.AUTO, expand=True,
-                         vertical_alignment=ft.CrossAxisAlignment.START)
-        table = ft.Container(table_h, expand=True, padding=ft.Padding(left=16, top=0, right=8, bottom=8))
+        h_scroll = ft.Row([self.table_inner], scroll=ft.ScrollMode.AUTO,
+                          vertical_alignment=ft.CrossAxisAlignment.START)
+        table = ft.Container(
+            ft.Column([h_scroll], scroll=ft.ScrollMode.AUTO, expand=True),
+            expand=True, padding=ft.Padding(left=16, top=0, right=8, bottom=8))
 
         # pannello anteprima PDF (a destra)
         self.preview_titolo = ft.Text("Anteprima PDF", size=13, weight=ft.FontWeight.BOLD, expand=True)
@@ -141,8 +156,9 @@ class UI:
                 ft.Column([self.preview_img, self.preview_txt],
                           scroll=ft.ScrollMode.AUTO, expand=True)],
                 spacing=6, expand=True),
-            width=480, padding=ft.Padding(left=8, top=0, right=16, bottom=8),
+            width=self._preview_w(), padding=ft.Padding(left=8, top=0, right=16, bottom=8),
             border=ft.Border(left=ft.BorderSide(1, ft.Colors.OUTLINE_VARIANT)))
+        self.preview_container = preview
 
         corpo = ft.Row([table, preview], expand=True, spacing=0,
                        vertical_alignment=ft.CrossAxisAlignment.STRETCH)
@@ -178,6 +194,28 @@ class UI:
         self.page.update()
 
     # ------------------------------------------------------------ tabella
+    def _win_w(self):
+        """Larghezza contenuto corrente (logical px), con fallback."""
+        try:
+            return int(self.page.width or self.page.window.width or 1200)
+        except Exception:
+            return 1200
+
+    def _preview_w(self):
+        """Larghezza responsive del pannello anteprima (0 se nascosto)."""
+        if not self._preview_on:
+            return 0
+        return max(300, min(560, int(self._win_w() * 0.34)))
+
+    def toggle_anteprima(self, e=None):
+        """Mostra/nasconde il pannello anteprima per liberare spazio alle colonne."""
+        self._preview_on = not self._preview_on
+        if self.preview_container is not None:
+            self.preview_container.visible = self._preview_on
+        self._adatta()
+        self._set_status("Anteprima mostrata." if self._preview_on
+                         else "Anteprima nascosta: più spazio per le colonne.")
+
     def _larghezze(self):
         w = {}
         for key, label, minw in COLS:
@@ -188,8 +226,36 @@ class UI:
             for d in self.data:
                 longest = max(longest, len(str(d.get(key, "") or "")))
             w[key] = min(MAX_W, max(minw, int(longest * CHAR_PX + PAD_PX)))
+        # Responsive: se c'e' spazio, allarga le colonne non manuali per riempire la
+        # larghezza disponibile (altrimenti restano al naturale e la tabella scorre).
+        avail = self._win_w() - self._preview_w() - 40
+        fissi = 26 + 80 + 6 * (len(COLS) + 2)           # stato + azioni + spaziature
+        flessibili = [k for k, _l, _m in COLS if k not in self.manual]
+        tot = sum(w.values()) + fissi
+        if avail > tot and flessibili:
+            extra = avail - tot
+            base = sum(w[k] for k in flessibili) or 1
+            for k in flessibili:
+                w[k] += int(extra * w[k] / base)
         self.col_w = dict(w)
         return w
+
+    def _adatta(self, e=None):
+        """Handler resize: adatta pannello anteprima e larghezze colonne alla finestra."""
+        try:
+            if self.preview_container is not None:
+                self.preview_container.width = self._preview_w()
+            w = self._larghezze()
+            for key, _l, _m in COLS:
+                if key in self.head_cells:
+                    self.head_cells[key].width = w[key]
+                for d in self.data:
+                    c = (d.get("_ctrl") or {}).get(key)
+                    if c is not None:
+                        c.width = max(w[key], 104) if key == "tipo_documento" else w[key]
+            self.page.update()
+        except Exception:
+            pass
 
     def _resize(self, key, dx):
         try:
@@ -204,7 +270,7 @@ class UI:
         for d in self.data:
             c = d.get("_ctrl")
             if c and key in c:
-                c[key].width = max(neww, 92) if key == "tipo_documento" else neww
+                c[key].width = max(neww, 104) if key == "tipo_documento" else neww
         self.page.update()
 
     def _cella_header(self, key, lab, width):
@@ -242,6 +308,7 @@ class UI:
         controls = [header]
         for d in self.data:
             controls.append(self._riga(d, w))
+        controls.append(ft.Container(height=16))     # spazio per la scrollbar orizzontale
         self.table_inner.controls = controls
         self.page.update()
 
@@ -254,7 +321,8 @@ class UI:
             if key == "file":
                 c = ft.TextField(value=val, width=w[key], height=40, text_size=12, dense=True, read_only=True)
             elif key == "tipo_documento":
-                c = ft.Dropdown(value=val or "TD17", width=max(w[key], 92), text_size=12, dense=True,
+                c = ft.Dropdown(value=val or "TD17", width=max(w[key], 104), height=40, text_size=12,
+                                dense=True, content_padding=ft.Padding(left=8, top=0, right=4, bottom=0),
                                 options=[ft.dropdown.Option(x) for x in ("TD16", "TD17", "TD18", "TD19")])
             else:
                 c = ft.TextField(value=val, width=w[key], height=40, text_size=12, dense=True)
@@ -418,8 +486,8 @@ class UI:
         if key in ("data", "data_fattura_originaria"):
             if v == "":
                 return True, ""
-            if not re.match(r"^\d{4}-\d{2}-\d{2}$", v):
-                return False, "Data in formato AAAA-MM-GG."
+            if not re.match(r"^\d{1,2}[-/.]\d{1,2}[-/.]\d{4}$", v):
+                return False, "Data in formato GG-MM-AAAA."
             return True, ""
         if key in ("imponibile", "aliquota_iva"):
             if v == "":
@@ -534,8 +602,8 @@ class UI:
                     "imponibile": "" if imp is None else f"{imp:.2f}",
                     "aliquota_iva": d.get("aliquota_iva", self.cfg.get("aliquota_default", "22.00")),
                     "num_fattura_originaria": d.get("num_fattura_originaria", "") or "",
-                    "data_fattura_originaria": d.get("data_fattura_originaria", "") or "",
-                    "data": d.get("data", "") or "",
+                    "data_fattura_originaria": iso_to_it(d.get("data_fattura_originaria", "") or ""),
+                    "data": iso_to_it(d.get("data", "") or ""),
                     "descrizione": d.get("descrizione", "") or "",
                     "_extra": {"fornitore": forn, "note": note}, "_note": note,
                 })
@@ -595,7 +663,8 @@ class UI:
         imp = _to_float(d.get("imponibile"))
         if imp is None:
             return None, "imponibile mancante/non valido."
-        data_reg = data_glob or (d.get("data") or "").strip()
+        # le date arrivano dall'interfaccia in GG-MM-AAAA: convertile in ISO per il motore
+        data_reg = it_to_iso(data_glob) or it_to_iso(d.get("data") or "")
         if not data_reg:
             return None, "manca la data (compila «Data autofattura»)."
         inv = {
@@ -604,7 +673,7 @@ class UI:
             "aliquota_iva": (d.get("aliquota_iva") or "22.00").strip(),
             "imponibile": imp,
             "num_fattura_originaria": (d.get("num_fattura_originaria") or "").strip(),
-            "data_fattura_originaria": (d.get("data_fattura_originaria") or "").strip() or None,
+            "data_fattura_originaria": it_to_iso(d.get("data_fattura_originaria") or "") or None,
             "fornitore": forn,
             "righe": [{"descrizione": (d.get("descrizione") or "Servizio").strip(),
                        "quantita": 1, "prezzo": imp}],
@@ -767,6 +836,29 @@ def _to_float(s):
         return None
 
 
+# --------------------------------------------------------------------------- #
+# Date: nell'interfaccia si usa il formato italiano GG-MM-AAAA, ma il motore e
+# l'XML FatturaPA vogliono ISO AAAA-MM-GG. Conversione ai bordi (UI <-> motore).
+# --------------------------------------------------------------------------- #
+def iso_to_it(s):
+    """AAAA-MM-GG -> GG-MM-AAAA (lascia com'e' se non e' ISO/e' vuoto)."""
+    m = re.match(r"^\s*(\d{4})-(\d{2})-(\d{2})\s*$", s or "")
+    return f"{m.group(3)}-{m.group(2)}-{m.group(1)}" if m else (s or "")
+
+
+def it_to_iso(s):
+    """GG-MM-AAAA (o GG/MM/AAAA) -> AAAA-MM-GG. Passthrough se gia' ISO; '' se vuoto."""
+    s = (s or "").strip()
+    if not s:
+        return ""
+    m = re.match(r"^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$", s)
+    if m:
+        return f"{m.group(3)}-{int(m.group(2)):02d}-{int(m.group(1)):02d}"
+    if re.match(r"^\d{4}-\d{2}-\d{2}$", s):        # gia' ISO
+        return s
+    return s                                        # non riconosciuto: lo blocca la validazione/XSD
+
+
 def main(page: ft.Page):
     ui = UI(page)
     auto = os.environ.get("AUTO_PDFS")
@@ -793,7 +885,7 @@ def main(page: ft.Page):
             "file": "esempio.pdf", "denominazione": "Foreign Supplier Ltd", "id_paese": "IE",
             "id_codice": "IE1234567AB", "tipo_documento": "TD17", "imponibile": "100.00",
             "aliquota_iva": "22.00", "num_fattura_originaria": "TEST-001",
-            "data_fattura_originaria": "2026-02-28", "data": "2026-03-15",
+            "data_fattura_originaria": "28-02-2026", "data": "15-03-2026",
             "descrizione": "Servizio di esempio",
             "_extra": {"fornitore": {"denominazione": "Foreign Supplier Ltd", "id_paese": "IE",
                                      "id_codice": "IE1234567AB", "indirizzo": "1 Test Street",
