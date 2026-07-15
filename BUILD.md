@@ -34,18 +34,22 @@ Dettagli in `tests/README.md` (genera un TD17, valida contro l'XSD ufficiale
 FatturaPA 1.2.2 e confronta col golden).
 
 ## 3. Creare l'exe (Flet)
-Metodo consigliato (PyInstaller tramite Flet):
+Metodo consigliato (PyInstaller tramite Flet). Comando completo (hidden-import +
+schema XSD per la validazione della Fase 1):
 ```
-flet pack main.py --name AutofattureAruba --product-name "Autofatture Aruba" --copyright "Digital Creation"
+flet pack main.py --name AutofattureAruba --product-name "Autofatture Aruba" ^
+  --copyright "Digital Creation" --company-name "Digital Creation" ^
+  --hidden-import a38 --hidden-import pdfplumber --hidden-import dateutil --hidden-import lxml ^
+  --add-data "schema:schema" -y
 ```
 Output: `dist\AutofattureAruba.exe` (onefile).
 
-Se all'avvio l'exe segnala moduli mancanti, aggiungere gli hidden-import:
-```
-flet pack main.py --name AutofattureAruba ^
-  --hidden-import a38 --hidden-import pdfplumber --hidden-import dateutil ^
-  --hidden-import lxml
-```
+- `--hidden-import a38 pdfplumber dateutil lxml`: moduli con import dinamici che
+  PyInstaller non rileva da solo.
+- `--add-data "schema:schema"`: **necessario** — include la cartella `schema/`
+  (XSD FatturaPA) usata da `validazione.py` per validare l'XML nell'app.
+  Senza, la validazione nell'exe non funziona.
+
 (In alternativa `flet build windows` produce un'app Flutter nativa ma richiede
 Flutter SDK + Visual Studio: più pesante, non necessario per la beta.)
 
