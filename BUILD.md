@@ -26,6 +26,13 @@ python main.py
 Verificare: aggiunta PDF, tabella, impostazioni a schede, Genera XML, e in
 Impostazioni → Info il pulsante "Controlla aggiornamenti".
 
+Test di regressione del motore (deve restare verde a ogni modifica):
+```
+python tests/test_regressione.py
+```
+Dettagli in `tests/README.md` (genera un TD17, valida contro l'XSD ufficiale
+FatturaPA 1.2.2 e confronta col golden).
+
 ## 3. Creare l'exe (Flet)
 Metodo consigliato (PyInstaller tramite Flet):
 ```
