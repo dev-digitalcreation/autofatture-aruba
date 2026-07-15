@@ -71,6 +71,7 @@ class UI:
         page.on_resize = self._adatta     # colonne + anteprima si adattano alla finestra
 
         self.preview_container = None
+        self._preview_on = True
         self.fp = ft.FilePicker()
         page.services.append(self.fp)
         self._build()
@@ -103,6 +104,8 @@ class UI:
                         ft.PopupMenuItem(content="Chiaro", on_click=lambda e: self._tema("light")),
                         ft.PopupMenuItem(content="Scuro", on_click=lambda e: self._tema("dark")),
                     ]),
+                    ft.IconButton(ft.Icons.VIEW_SIDEBAR, tooltip="Mostra/nascondi anteprima PDF",
+                                  on_click=self.toggle_anteprima),
                     ft.OutlinedButton("Impostazioni", icon=ft.Icons.SETTINGS, on_click=self.apri_impostazioni),
                     ft.FilledTonalButton("Aggiungi PDF", icon=ft.Icons.UPLOAD_FILE, on_click=self.aggiungi_pdf),
                     ft.OutlinedButton("Valida", icon=ft.Icons.FACT_CHECK, on_click=self.valida_righe),
@@ -123,12 +126,15 @@ class UI:
             alignment=ft.Alignment.CENTER, on_click=self.aggiungi_pdf, ink=True,
         )
 
-        # tabella: Column interna (header + righe) con doppio scorrimento
+        # tabella: doppio scorrimento. La Row (scroll orizzontale) contiene la Column
+        # delle righe alla sua larghezza NATURALE, così le colonne scorrono invece di
+        # essere tagliate; la Column esterna (scroll verticale) gestisce l'altezza.
         self.table_inner = ft.Column([], spacing=4)
-        table_v = ft.Column([self.table_inner], scroll=ft.ScrollMode.AUTO, expand=True)
-        table_h = ft.Row([table_v], scroll=ft.ScrollMode.AUTO, expand=True,
-                         vertical_alignment=ft.CrossAxisAlignment.START)
-        table = ft.Container(table_h, expand=True, padding=ft.Padding(left=16, top=0, right=8, bottom=8))
+        h_scroll = ft.Row([self.table_inner], scroll=ft.ScrollMode.AUTO,
+                          vertical_alignment=ft.CrossAxisAlignment.START)
+        table = ft.Container(
+            ft.Column([h_scroll], scroll=ft.ScrollMode.AUTO, expand=True),
+            expand=True, padding=ft.Padding(left=16, top=0, right=8, bottom=8))
 
         # pannello anteprima PDF (a destra)
         self.preview_titolo = ft.Text("Anteprima PDF", size=13, weight=ft.FontWeight.BOLD, expand=True)
@@ -191,8 +197,19 @@ class UI:
             return 1200
 
     def _preview_w(self):
-        """Larghezza responsive del pannello anteprima."""
+        """Larghezza responsive del pannello anteprima (0 se nascosto)."""
+        if not self._preview_on:
+            return 0
         return max(300, min(560, int(self._win_w() * 0.34)))
+
+    def toggle_anteprima(self, e=None):
+        """Mostra/nasconde il pannello anteprima per liberare spazio alle colonne."""
+        self._preview_on = not self._preview_on
+        if self.preview_container is not None:
+            self.preview_container.visible = self._preview_on
+        self._adatta()
+        self._set_status("Anteprima mostrata." if self._preview_on
+                         else "Anteprima nascosta: più spazio per le colonne.")
 
     def _larghezze(self):
         w = {}
