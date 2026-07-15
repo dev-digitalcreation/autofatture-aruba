@@ -12,6 +12,7 @@ Riusa il motore (motore.py, estrazione.py, cambio.py, config_io.py) senza modifi
 import os
 import sys
 import csv
+import re
 
 import flet as ft
 
@@ -24,6 +25,7 @@ import cambio
 import version
 import archivio
 import validazione
+import anteprima
 
 OUTPUT_DEF = config_io.OUTPUT_DIR
 ACCENT = ft.Colors.GREEN
@@ -122,13 +124,37 @@ class UI:
         table_v = ft.Column([self.table_inner], scroll=ft.ScrollMode.AUTO, expand=True)
         table_h = ft.Row([table_v], scroll=ft.ScrollMode.AUTO, expand=True,
                          vertical_alignment=ft.CrossAxisAlignment.START)
-        table = ft.Container(table_h, expand=True, padding=ft.Padding(left=16, top=0, right=16, bottom=8))
+        table = ft.Container(table_h, expand=True, padding=ft.Padding(left=16, top=0, right=8, bottom=8))
 
+        # pannello anteprima PDF (a destra)
+        self.preview_titolo = ft.Text("Anteprima PDF", size=13, weight=ft.FontWeight.BOLD, expand=True)
+        self.preview_zoom_btn = ft.IconButton(ft.Icons.ZOOM_IN, tooltip="Ingrandisci (popup)",
+                                              on_click=self.apri_anteprima_popup, disabled=True)
+        self.preview_img = ft.Image(src="", fit=ft.BoxFit.FIT_WIDTH, visible=False)
+        self.preview_txt = ft.Text("Seleziona una riga (icona 👁) per vedere il PDF originale.",
+                                   size=12, color=ft.Colors.ON_SURFACE_VARIANT, selectable=True)
+        preview = ft.Container(
+            content=ft.Column([
+                ft.Row([self.preview_titolo, self.preview_zoom_btn],
+                       vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                ft.Divider(height=1),
+                ft.Column([self.preview_img, self.preview_txt],
+                          scroll=ft.ScrollMode.AUTO, expand=True)],
+                spacing=6, expand=True),
+            width=480, padding=ft.Padding(left=8, top=0, right=16, bottom=8),
+            border=ft.Border(left=ft.BorderSide(1, ft.Colors.OUTLINE_VARIANT)))
+
+        corpo = ft.Row([table, preview], expand=True, spacing=0,
+                       vertical_alignment=ft.CrossAxisAlignment.STRETCH)
+
+        self.watch_btn = ft.OutlinedButton("Cartella sorvegliata", icon=ft.Icons.FOLDER_SPECIAL,
+                                           on_click=self.toggle_sorveglia)
         footer = ft.Container(
             content=ft.Row([
                 ft.Row([self.start_field, self.data_field,
                         ft.OutlinedButton("Cartella output", icon=ft.Icons.FOLDER,
-                                          on_click=self.scegli_output)], spacing=10),
+                                          on_click=self.scegli_output),
+                        self.watch_btn], spacing=10),
                 self.status,
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
             padding=ft.Padding(left=16, top=6, right=16, bottom=10),
@@ -136,7 +162,7 @@ class UI:
 
         self.page.add(ft.Column([
             header, ft.Container(self.info, padding=ft.Padding(left=16, top=0, right=16, bottom=6)),
-            self.drop, table, footer,
+            self.drop, corpo, footer,
         ], spacing=0, expand=True))
         self._render_table()
 
@@ -212,7 +238,7 @@ class UI:
         header = ft.Row(
             [ft.Container(width=26)]
             + [self._cella_header(key, lab, w[key]) for key, lab, _m in COLS]
-            + [ft.Container(width=44)], spacing=6)
+            + [ft.Container(width=80)], spacing=6)
         controls = [header]
         for d in self.data:
             controls.append(self._riga(d, w))
@@ -235,12 +261,23 @@ class UI:
                 if warn and key in ("denominazione", "id_paese", "id_codice", "imponibile") \
                         and (val in ("", "??") or "VERIFICA" in val.upper()):
                     c.border_color = WARN
+                if key in ("data", "data_fattura_originaria", "imponibile", "aliquota_iva",
+                           "id_paese", "id_codice"):
+                    c.on_change = lambda e, k=key: self._on_campo_change(e, k)
             ctrls[key] = c
             cells.append(c)
         d["_ctrl"] = ctrls
-        cells.append(ft.Container(
-            ft.IconButton(ft.Icons.CLOSE, icon_size=16, tooltip="Rimuovi",
-                          on_click=lambda e, dd=d: self._del_row(dd)), width=44))
+        azioni = ft.Row([
+            ft.IconButton(ft.Icons.VISIBILITY, icon_size=16, tooltip="Anteprima PDF",
+                          on_click=lambda e, dd=d: self.mostra_anteprima(dd)),
+            ft.PopupMenuButton(icon=ft.Icons.MORE_VERT, tooltip="Azioni", items=[
+                ft.PopupMenuItem(content="Salva come fornitore noto",
+                                 on_click=lambda e, dd=d: self.salva_fornitore_da_riga(dd)),
+                ft.PopupMenuItem(content="Rimuovi",
+                                 on_click=lambda e, dd=d: self._del_row(dd)),
+            ]),
+        ], spacing=0)
+        cells.append(ft.Container(azioni, width=80))
         return ft.Row([self._icona_stato(d)] + cells, spacing=6)
 
     def _icona_stato(self, d):
@@ -271,6 +308,184 @@ class UI:
     def _set_status(self, t):
         self.status.value = t
         self.page.update()
+
+    # ---------------------------------------------------- Fase 2: revisione
+    def _png_size(self, png):
+        """Ritorna (w, h) in px del PNG, o (None, None)."""
+        try:
+            import io as _io
+            from PIL import Image as _PILImage
+            return _PILImage.open(_io.BytesIO(png)).size
+        except Exception:
+            return (None, None)
+
+    def _scrivi_png_temp(self, png, prefisso, tieni_precedente_attr=None):
+        import tempfile
+        pdir = os.path.join(tempfile.gettempdir(), "reversa_preview")
+        os.makedirs(pdir, exist_ok=True)
+        if tieni_precedente_attr:
+            prev = getattr(self, tieni_precedente_attr, None)
+            if prev and os.path.exists(prev):
+                try:
+                    os.remove(prev)
+                except OSError:
+                    pass
+        n = getattr(self, "_preview_n", 0) + 1
+        self._preview_n = n
+        outp = os.path.join(pdir, f"{prefisso}_{n}.png")
+        with open(outp, "wb") as f:
+            f.write(png)
+        return outp
+
+    def mostra_anteprima(self, d):
+        path = d.get("_path")
+        nome = d.get("file") or "PDF"
+        self.preview_titolo.value = f"Anteprima — {nome}"
+        self._preview_path = path if (path and os.path.exists(path)) else None
+        self.preview_zoom_btn.disabled = self._preview_path is None
+        if self._preview_path:
+            png = anteprima.render_png(path, scale=2.0)
+            if png:
+                outp = self._scrivi_png_temp(png, "prev", tieni_precedente_attr="_preview_file")
+                self._preview_file = outp
+                w, h = self._png_size(png)
+                larghezza = 440
+                self.preview_img.src = outp
+                self.preview_img.width = larghezza
+                self.preview_img.height = int(larghezza * h / w) if (w and h) else None
+                self.preview_img.visible = True
+                self.preview_txt.visible = False
+                self.page.update()
+                return
+            testo = anteprima.estrai_testo(path)
+            self.preview_img.visible = False
+            self.preview_txt.value = testo or "Impossibile mostrare il PDF."
+            self.preview_txt.visible = True
+        else:
+            self.preview_img.visible = False
+            note = d.get("_note") or []
+            self.preview_txt.value = ("PDF non disponibile per questa riga."
+                                      + (("\n\n" + "\n".join(note)) if note else ""))
+            self.preview_txt.visible = True
+        self.page.update()
+
+    def apri_anteprima_popup(self, e=None):
+        path = getattr(self, "_preview_path", None)
+        if not path or not os.path.exists(path):
+            self._set_status("Nessun PDF da ingrandire: seleziona prima una riga con 👁.")
+            return
+        png = anteprima.render_png(path, scale=3.0)
+        if not png:
+            self._dialogo("Anteprima", "Impossibile renderizzare il PDF.")
+            return
+        outp = self._scrivi_png_temp(png, "pop", tieni_precedente_attr="_popup_file")
+        self._popup_file = outp
+        w, h = self._png_size(png)
+        disp_w = 900
+        img = ft.Image(src=outp, width=disp_w, fit=ft.BoxFit.FIT_WIDTH,
+                       height=int(disp_w * h / w) if (w and h) else None)
+        dlg = ft.AlertDialog(
+            title=ft.Text(f"Anteprima — {os.path.basename(path)}"),
+            content=ft.Container(
+                ft.Column([ft.Row([img], scroll=ft.ScrollMode.AUTO)], scroll=ft.ScrollMode.AUTO),
+                width=980, height=700),
+            actions=[ft.TextButton("Chiudi", on_click=lambda e: self.page.pop_dialog())])
+        self.page.show_dialog(dlg)
+
+    def salva_fornitore_da_riga(self, d):
+        self._sync()
+        forn = dict(d.get("_extra", {}).get("fornitore", {}))
+        denom = (d.get("denominazione") or "").strip()
+        prefill = {
+            "chiave": denom.lower()[:24],
+            "denominazione": denom,
+            "id_paese": (d.get("id_paese") or "").strip(),
+            "id_codice": (d.get("id_codice") or "").strip(),
+            "indirizzo": forn.get("indirizzo", ""),
+            "numero_civico": forn.get("numero_civico", ""),
+            "cap": forn.get("cap", "") or "00000",
+            "comune": forn.get("comune", ""),
+            "nazione": forn.get("nazione", "") or (d.get("id_paese") or "").strip(),
+            "tipo_documento": (d.get("tipo_documento") or "TD17").strip(),
+        }
+        from settings_flet import build_settings_dialog
+        build_settings_dialog(self.page, self.cfg, on_save=self._dopo_impostazioni,
+                              prefill_fornitore=prefill, tab_index=2)
+
+    # ---- validazione inline dei campi ----
+    def _valida_campo(self, key, val):
+        v = (val or "").strip()
+        if key in ("data", "data_fattura_originaria"):
+            if v == "":
+                return True, ""
+            if not re.match(r"^\d{4}-\d{2}-\d{2}$", v):
+                return False, "Data in formato AAAA-MM-GG."
+            return True, ""
+        if key in ("imponibile", "aliquota_iva"):
+            if v == "":
+                return (key != "imponibile", "Imponibile mancante." if key == "imponibile" else "")
+            try:
+                float(v.replace(",", "."))
+                return True, ""
+            except ValueError:
+                return False, "Valore non numerico."
+        if key == "id_paese":
+            if len(v) == 2 and v.isalpha():
+                return True, ""
+            return False, "Paese: 2 lettere (es. IT, IE)."
+        if key == "id_codice":
+            return (bool(v), "" if v else "P.IVA/ID mancante.")
+        return True, ""
+
+    def _on_campo_change(self, e, key):
+        ok, msg = self._valida_campo(key, e.control.value)
+        e.control.border_color = None if ok else ft.Colors.RED
+        e.control.tooltip = None if ok else msg
+        try:
+            e.control.update()
+        except Exception:
+            self.page.update()
+        if not ok:
+            self._set_status(f"⚠ {msg}")
+
+    # ---- cartella sorvegliata ----
+    async def toggle_sorveglia(self, e=None):
+        if getattr(self, "_watch_active", False):
+            self._watch_active = False
+            self.watch_btn.text = "Cartella sorvegliata"
+            self._set_status("Sorveglianza cartella disattivata.")
+            return
+        try:
+            folder = await self.fp.get_directory_path(dialog_title="Cartella da sorvegliare")
+        except Exception as ex:
+            self._set_status(f"Selezione cartella non disponibile: {ex}")
+            return
+        if not folder:
+            return
+        self._watch_dir = folder
+        try:
+            self._watch_seen = set(os.listdir(folder))
+        except Exception:
+            self._watch_seen = set()
+        self._watch_active = True
+        self.watch_btn.text = "Sorveglianza ON"
+        self._set_status(f"Sorveglio: {folder}")
+        self.page.run_task(self._watch_loop)
+
+    async def _watch_loop(self):
+        import asyncio
+        while getattr(self, "_watch_active", False):
+            try:
+                files = set(os.listdir(self._watch_dir))
+                nuovi = [os.path.join(self._watch_dir, f)
+                         for f in sorted(files - self._watch_seen) if f.lower().endswith(".pdf")]
+                self._watch_seen = files
+                if nuovi:
+                    self._add_pdfs(nuovi)
+                    self._set_status(f"Importati {len(nuovi)} PDF dalla cartella sorvegliata.")
+            except Exception:
+                pass
+            await asyncio.sleep(3)
 
     # ---------------------------------------------------------------- azioni
     async def aggiungi_pdf(self, e=None):
@@ -310,6 +525,7 @@ class UI:
                     else:
                         note.append(f"Cambio Banca d'Italia non disponibile: converti a mano da {valuta} in EUR.")
                 self.data.append({
+                    "_path": p,
                     "file": os.path.basename(d.get("file", "")),
                     "denominazione": forn.get("denominazione", ""),
                     "id_paese": forn.get("id_paese", ""),
@@ -591,6 +807,19 @@ def main(page: ft.Page):
             ui.genera()
     if os.environ.get("AUTO_VALIDA"):
         ui.valida_righe()
+    if os.environ.get("AUTO_PREVIEW") and ui.data:
+        ui.mostra_anteprima(ui.data[0])
+    if os.environ.get("AUTO_POPUP") and ui.data:
+        ui.mostra_anteprima(ui.data[0])
+        ui.apri_anteprima_popup()
+    if os.environ.get("AUTO_SAVEFORN") and ui.data:
+        ui.salva_fornitore_da_riga(ui.data[0])
+    if os.environ.get("AUTO_WATCH"):            # avvia la sorveglianza su una cartella (test)
+        ui._watch_dir = os.environ["AUTO_WATCH"]
+        ui._watch_seen = set()
+        ui._watch_active = True
+        ui.watch_btn.text = "Sorveglianza ON"
+        page.run_task(ui._watch_loop)
 
 
 if __name__ == "__main__":

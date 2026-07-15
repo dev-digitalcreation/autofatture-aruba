@@ -23,7 +23,8 @@ def _titolo(t):
     return ft.Text(t, weight=ft.FontWeight.BOLD, size=14)
 
 
-def build_settings_dialog(page: ft.Page, cfg: dict, on_save=None):
+def build_settings_dialog(page: ft.Page, cfg: dict, on_save=None,
+                          prefill_fornitore=None, tab_index=None):
     cfg = copy.deepcopy(cfg)
     forn = config_io.carica_fornitori()
     az = cfg.setdefault("azienda", {})
@@ -125,6 +126,16 @@ def build_settings_dialog(page: ft.Page, cfg: dict, on_save=None):
             forn_nuovo()
 
     dd.on_change = load_forn
+
+    # Precompilazione da "Salva come fornitore noto" (una riga della tabella)
+    if prefill_fornitore:
+        for k, _l in campi_f:
+            vf[k].value = str(prefill_fornitore.get(k, "") or "")
+        if not vf["tipo_documento"].value:
+            vf["tipo_documento"].value = "TD17"
+        if not vf["cap"].value:
+            vf["cap"].value = "00000"
+        dd.value = None
     view_forn = _scheda([
         _titolo("Fornitori riconosciuti automaticamente"),
         ft.Text("Seleziona un fornitore per modificarlo, o premi «Nuovo» per crearne uno.",
@@ -198,8 +209,9 @@ def build_settings_dialog(page: ft.Page, cfg: dict, on_save=None):
     ])
 
     # ---------------- Tabs ----------------
+    _sel = tab_index if tab_index is not None else int(os.environ.get('AUTO_TAB', '0') or 0)
     tabs = ft.Tabs(
-        length=5, expand=True, selected_index=int(os.environ.get('AUTO_TAB', '0') or 0),
+        length=5, expand=True, selected_index=_sel,
         content=ft.Column(expand=True, controls=[
             ft.TabBar(tabs=[ft.Tab(label="Azienda", icon=ft.Icons.BUSINESS),
                             ft.Tab(label="Pagamento", icon=ft.Icons.PAYMENTS),
