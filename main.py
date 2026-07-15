@@ -81,6 +81,7 @@ class UI:
         page.window.height = 760
         page.window.min_width = 1000      # sotto questa soglia il layout resta usabile
         page.window.min_height = 620
+        page.window.icon = _asset("reversa.ico")   # icona finestra / barra applicazioni
         page.padding = 0
         page.on_resize = self._adatta     # colonne + anteprima si adattano alla finestra
 

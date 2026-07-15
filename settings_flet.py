@@ -159,7 +159,6 @@ def build_settings_dialog(page: ft.Page, cfg: dict, on_save=None,
                         v["start"], v["prefix"], v["ricorda"]])
 
     # ---------------- scheda INFO / AGGIORNAMENTI ----------------
-    v["token"] = _campo("Token GitHub (non necessario con repo pubblico)", cfg.get("github_token", ""))
     stato_upd = ft.Text("", size=13)
     _info = {}
 
@@ -167,7 +166,7 @@ def build_settings_dialog(page: ft.Page, cfg: dict, on_save=None,
         stato_upd.value = "Scaricamento in corso…"
         page.update()
         try:
-            p = aggiornamenti.scarica_installer(_info.get("info", {}), (v["token"].value or "").strip())
+            p = aggiornamenti.scarica_installer(_info.get("info", {}))
             aggiornamenti.avvia_installer(p)
             stato_upd.value = "Installer avviato. Chiudi l'app per completare l'aggiornamento."
         except Exception as ex:
@@ -181,8 +180,7 @@ def build_settings_dialog(page: ft.Page, cfg: dict, on_save=None,
         dl_btn.visible = False
         page.update()
         try:
-            info = aggiornamenti.controlla(version.GITHUB_OWNER, version.GITHUB_REPO,
-                                           (v["token"].value or "").strip())
+            info = aggiornamenti.controlla(version.GITHUB_OWNER, version.GITHUB_REPO)
         except Exception as ex:
             stato_upd.value = f"Impossibile controllare: {ex}"
             page.update()
@@ -202,7 +200,6 @@ def build_settings_dialog(page: ft.Page, cfg: dict, on_save=None,
         _titolo("Applicazione"),
         ft.Text(f"Versione installata: v{version.__version__}", size=13),
         ft.Text(f"Repository aggiornamenti: {repo_txt}", size=12, color=ft.Colors.ON_SURFACE_VARIANT),
-        v["token"],
         ft.Row([ft.FilledTonalButton("Controlla aggiornamenti", icon=ft.Icons.SYSTEM_UPDATE,
                                      on_click=controlla_upd), dl_btn], spacing=8),
         stato_upd,
@@ -248,7 +245,7 @@ def build_settings_dialog(page: ft.Page, cfg: dict, on_save=None,
         cfg["aliquota_default"] = (v["aliq"].value or "22.00").strip()
         cfg["regime_fiscale_cedente"] = (v["regime"].value or "RF18").strip()
         cfg["importo_totale_documento"] = bool(v["totale"].value)
-        cfg["github_token"] = (v["token"].value or "").strip()
+        cfg["github_token"] = ""      # repo pubblico: nessun token
         config_io.salva_config(cfg)
         config_io.salva_fornitori(forn_state)
         page.pop_dialog()
