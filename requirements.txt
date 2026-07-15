@@ -3,3 +3,5 @@ lxml
 pdfplumber
 python-dateutil
 flet
+pypdfium2
+Pillow

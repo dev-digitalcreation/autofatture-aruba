@@ -36,6 +36,14 @@ Come si usa
 5. Premi "Genera XML". Trovi i file + "riepilogo.csv" nella cartella output.
 6. Carica gli XML su Aruba: "Carica fattura" -> selezioni i file -> invio a SdI.
 
+Revisione piu' rapida:
+  - Anteprima: l'icona 👁 su una riga mostra il PDF originale nel pannello a destra.
+  - Menu ⋮ su una riga: "Salva come fornitore noto" (precompila la scheda Fornitori)
+    o "Rimuovi".
+  - I campi con errori (data, importo, paese, P.IVA) si evidenziano in rosso mentre digiti.
+  - "Cartella sorvegliata": scegli una cartella e i PDF che ci metti vengono importati
+    automaticamente.
+
 VALUTA ESTERA: se una fattura e' in USD/GBP/altro, l'app converte
 automaticamente l'imponibile in EUR usando il cambio ufficiale della
 Banca d'Italia del giorno della fattura (serve la connessione internet).
