@@ -20,6 +20,7 @@ import urllib.request
 import version
 
 API_LATEST = "https://api.github.com/repos/{owner}/{repo}/releases/latest"
+API_LIST = "https://api.github.com/repos/{owner}/{repo}/releases?per_page=30"
 
 
 def _parse(v: str):
@@ -44,16 +45,33 @@ def e_piu_recente(corrente: str, candidata: str) -> bool:
         return False
 
 
-def controlla(owner: str, repo: str, token: str = "") -> dict:
-    if not owner or not repo:
-        raise ValueError("Repository non configurato (owner/repo in version.py).")
+def _fetch(url: str, token: str = ""):
     req = urllib.request.Request(
-        API_LATEST.format(owner=owner, repo=repo),
-        headers={"Accept": "application/vnd.github+json", "User-Agent": "AutofattureAruba"})
+        url, headers={"Accept": "application/vnd.github+json", "User-Agent": "AutofattureAruba"})
     if token:
         req.add_header("Authorization", f"Bearer {token}")
     with urllib.request.urlopen(req, timeout=12) as r:
-        rel = json.loads(r.read().decode("utf-8"))
+        return json.loads(r.read().decode("utf-8"))
+
+
+def controlla(owner: str, repo: str, token: str = "") -> dict:
+    if not owner or not repo:
+        raise ValueError("Repository non configurato (owner/repo in version.py).")
+    # Elenca le release: a differenza di /releases/latest, questo endpoint INCLUDE
+    # anche le prerelease (beta). Scegliamo la versione SemVer piu' alta pubblicata,
+    # scartando solo le bozze (draft).
+    releases = _fetch(API_LIST.format(owner=owner, repo=repo), token)
+    if isinstance(releases, dict):                       # difensivo
+        releases = [releases]
+    rel = None
+    for r in releases:
+        if r.get("draft"):
+            continue
+        if rel is None or _parse(r.get("tag_name", "")) > _parse(rel.get("tag_name", "")):
+            rel = r
+    if rel is None:                                      # nessuna release pubblicata
+        return {"tag": "", "nuova": False, "note": "", "html_url": "",
+                "asset_download": None, "asset_api": None}
     inst = None
     for a in rel.get("assets", []):
         if a.get("name", "").lower().endswith(".exe"):

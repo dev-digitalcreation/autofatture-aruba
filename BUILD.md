@@ -74,7 +74,10 @@ Committare la modifica.
 
 ## 6. Aggiornamenti — come funziona
 - L'app legge la sua versione da `version.py` e interroga
-  `GET /repos/OWNER/REPO/releases/latest`.
+  `GET /repos/OWNER/REPO/releases` (elenco), scegliendo la versione SemVer più
+  alta tra le release pubblicate. NB: si usa l'elenco e non `/releases/latest`
+  perché quest'ultimo esclude le **prerelease** (le beta): con sole prerelease
+  darebbe 404. Le bozze (draft) vengono ignorate.
 - Se il `tag_name` della release è più recente, mostra "Nuova versione
   disponibile" e scarica l'asset `.exe` (l'installer) allegato alla release.
 - **Repo pubblico (nostra scelta)**: nessun token necessario. Le release si
