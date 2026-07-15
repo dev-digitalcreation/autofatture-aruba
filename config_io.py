@@ -8,6 +8,7 @@ dell'utente (%APPDATA%\\Reversa), perche' dentro il pacchetto sono
 in sola lettura. Se mancano vengono creati dai default incorporati.
 """
 import os
+import re
 import sys
 import json
 import shutil
@@ -134,3 +135,116 @@ def salva_fornitori(forn: dict):
     with open(FORNITORI_PATH, "w", encoding="utf-8") as f:
         json.dump({"_nota": "Fornitori riconosciuti automaticamente dal testo del PDF.",
                    "fornitori": forn}, f, ensure_ascii=False, indent=2)
+
+
+# --------------------------------------------------------------------------- #
+# Import/Export fornitori (CSV / Excel .xlsx)
+# --------------------------------------------------------------------------- #
+# Colonne canoniche del foglio fornitori (la prima è la chiave).
+FORNITORI_COLS = ["chiave", "denominazione", "id_paese", "id_codice", "indirizzo",
+                  "numero_civico", "cap", "comune", "nazione", "tipo_documento"]
+
+
+def _norm_h(h) -> str:
+    """Normalizza un'intestazione: solo lettere/cifre minuscole (via spazi/punti/underscore)."""
+    return re.sub(r"[^a-z0-9]", "", str(h or "").lower())
+
+
+# Alias di intestazione -> colonna canonica (tollerante a maiuscole/spazi/sinonimi).
+_ALIAS_F = {_norm_h(c): c for c in FORNITORI_COLS}
+_ALIAS_F.update({
+    "paese": "id_paese",
+    "piva": "id_codice", "partitaiva": "id_codice", "vat": "id_codice", "idvat": "id_codice",
+    "ncivico": "numero_civico", "civico": "numero_civico",
+    "tipodoc": "tipo_documento", "td": "tipo_documento", "tipo": "tipo_documento",
+    "denom": "denominazione", "nome": "denominazione", "fornitore": "denominazione", "ragionesociale": "denominazione",
+})
+
+
+def fornitori_a_righe(forn: dict) -> list:
+    """Dict fornitori -> lista di righe [{colonna: valore}], una per fornitore (ordinate)."""
+    righe = []
+    for chiave in sorted(forn):
+        ana = forn.get(chiave) or {}
+        r = {"chiave": chiave}
+        for c in FORNITORI_COLS[1:]:
+            r[c] = str(ana.get(c, "") or "")
+        righe.append(r)
+    return righe
+
+
+def _righe_a_fornitori(righe) -> dict:
+    """Righe (dict per colonna) -> dict fornitori. Tollerante su intestazioni
+    (maiuscole/spazi); se manca la chiave la ricava dalla denominazione."""
+    out = {}
+    for raw in righe:
+        r = {}
+        for k, v in raw.items():
+            col = _ALIAS_F.get(_norm_h(k))
+            if col:
+                r[col] = "" if v is None else v
+        chiave = str(r.get("chiave", "")).strip().lower()
+        denom = str(r.get("denominazione", "")).strip()
+        if not chiave:
+            chiave = denom.lower()
+        if not chiave and not denom:
+            continue  # riga vuota, salta
+        ana = {}
+        for c in FORNITORI_COLS[1:]:
+            val = str(r.get(c, "")).strip()
+            if val:
+                ana[c] = val
+        ana.setdefault("tipo_documento", "TD17")
+        ana.setdefault("cap", "00000")
+        out[chiave] = ana
+    return out
+
+
+def esporta_fornitori(forn: dict, path: str) -> str:
+    """Esporta i fornitori in .csv o .xlsx (in base al suffisso di `path`). Ritorna il path."""
+    righe = fornitori_a_righe(forn)
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    ext = os.path.splitext(path)[1].lower()
+    if ext in (".xlsx", ".xlsm"):
+        import openpyxl
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Fornitori"
+        ws.append(FORNITORI_COLS)
+        for r in righe:
+            ws.append([r.get(c, "") for c in FORNITORI_COLS])
+        wb.save(path)
+    else:  # CSV: ';' + BOM UTF-8 -> si apre correttamente in Excel italiano
+        import csv
+        with open(path, "w", encoding="utf-8-sig", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=FORNITORI_COLS, delimiter=";")
+            w.writeheader()
+            for r in righe:
+                w.writerow(r)
+    return path
+
+
+def importa_fornitori(path: str) -> dict:
+    """Legge fornitori da .csv o .xlsx. Ritorna {chiave: anagrafica}."""
+    ext = os.path.splitext(path)[1].lower()
+    if ext in (".xlsx", ".xlsm"):
+        import openpyxl
+        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+        ws = wb.active
+        rows = list(ws.iter_rows(values_only=True))
+        wb.close()
+        if not rows:
+            return {}
+        header = [str(h or "").strip() for h in rows[0]]
+        righe = [dict(zip(header, ["" if c is None else c for c in r])) for r in rows[1:]]
+    else:
+        import csv
+        with open(path, encoding="utf-8-sig", newline="") as f:
+            sample = f.read(2048)
+            f.seek(0)
+            try:
+                delim = csv.Sniffer().sniff(sample, delimiters=";,\t").delimiter
+            except Exception:
+                delim = ";"
+            righe = list(csv.DictReader(f, delimiter=delim))
+    return _righe_a_fornitori(righe)

@@ -5,3 +5,4 @@ python-dateutil
 flet
 pypdfium2
 Pillow
+openpyxl
