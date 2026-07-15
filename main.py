@@ -399,7 +399,7 @@ class UI:
                     c.border_color = WARN
                 if key in ("data", "data_fattura_originaria", "imponibile", "aliquota_iva",
                            "id_paese", "id_codice"):
-                    c.on_change = lambda e, k=key: self._on_campo_change(e, k)
+                    c.on_change = lambda e, k=key, dd=d: self._on_campo_change(e, k, dd)
             ctrls[key] = c
             cells.append(c)
         d["_ctrl"] = ctrls
@@ -591,7 +591,7 @@ class UI:
             return (bool(v), "" if v else "P.IVA/ID mancante.")
         return True, ""
 
-    def _on_campo_change(self, e, key):
+    def _on_campo_change(self, e, key, d=None):
         ok, msg = self._valida_campo(key, e.control.value)
         e.control.border_color = None if ok else ft.Colors.RED
         e.control.tooltip = None if ok else msg
@@ -601,6 +601,51 @@ class UI:
             self.page.update()
         if not ok:
             self._set_status(f"⚠ {msg}")
+            return
+        # Fattura in valuta estera: se cambia la data, ricalcola l'imponibile in EUR
+        # col cambio Banca d'Italia di quel giorno (in background, senza bloccare la UI).
+        if d is not None and key in ("data", "data_fattura_originaria"):
+            extra = d.get("_extra", {})
+            if (extra.get("valuta") or "EUR").upper() != "EUR" and extra.get("importo_orig") is not None:
+                data_iso = it_to_iso((e.control.value or "").strip())
+                if data_iso:
+                    self.page.run_task(self._ricalcola_cambio, d, data_iso)
+
+    async def _ricalcola_cambio(self, d, data_iso):
+        """Ricalcola l'imponibile in EUR dall'importo originale in valuta, al cambio
+        Banca d'Italia della data indicata. Aggiorna campo, nota, dashboard e stato."""
+        import asyncio
+        extra = d.get("_extra", {})
+        valuta = (extra.get("valuta") or "EUR").upper()
+        orig = extra.get("importo_orig")
+        if valuta == "EUR" or orig is None or not data_iso:
+            return
+        self._set_status(f"Conversione {valuta}→EUR al cambio del {data_iso}…")
+        try:
+            conv = await asyncio.to_thread(cambio.converti_in_eur, orig, valuta, data_iso)
+        except Exception:
+            conv = None
+        if not conv:
+            self._set_status(f"Cambio {valuta} non disponibile per {iso_to_it(data_iso)}: converti a mano.")
+            return
+        d["imponibile"] = f"{conv['eur']:.2f}"
+        ctrl = d.get("_ctrl", {})
+        if ctrl.get("imponibile") is not None:
+            ctrl["imponibile"].value = d["imponibile"]
+            ctrl["imponibile"].border_color = None
+        # rinfresca le note: togli quelle di conversione/attesa-data, aggiungi l'esito
+        note = [n for n in (d.get("_note") or [])
+                if not any(t in n.lower() for t in ("convertito da", "cambio banca d'italia",
+                                                    "inserisci la data", "cambio", "in valuta"))]
+        note.append(f"Convertito da {valuta} in EUR (cambio Banca d'Italia "
+                    f"{conv['tasso']} del {conv['data_cambio']}) — verifica.")
+        d["_note"] = note
+        if isinstance(d.get("_extra"), dict):
+            d["_extra"]["note"] = note
+        self._aggiorna_dashboard()
+        self.page.update()
+        self._set_status(f"Imponibile ricalcolato: {orig:.2f} {valuta} → "
+                         f"{conv['eur']:.2f} EUR (cambio del {conv['data_cambio']}).")
 
     # ---- cartella sorvegliata ----
     async def toggle_sorveglia(self, e=None):
@@ -663,21 +708,28 @@ class UI:
                 valuta = (d.get("valuta") or "EUR").upper()
                 note = list(d.get("note", []))
                 data_rif = d.get("data_fattura_originaria") or d.get("data")
-                if imp is not None and valuta != "EUR" and data_rif:
-                    conv = None
-                    try:
-                        conv = cambio.converti_in_eur(imp, valuta, data_rif)
-                    except Exception:
-                        conv = None
+                # Importo originale in valuta estera: lo conservo per poter ricalcolare
+                # l'imponibile in EUR se in seguito viene inserita/corretta la data.
+                importo_orig = imp if (imp is not None and valuta != "EUR") else None
+                if imp is not None and valuta != "EUR":
                     note = [n for n in note if "converti l'imponibile" not in n.lower()]
+                    conv = None
+                    if data_rif:
+                        try:
+                            conv = cambio.converti_in_eur(imp, valuta, data_rif)
+                        except Exception:
+                            conv = None
                     if conv:
                         conversioni.append(f"{forn.get('denominazione','?')}: {imp:.2f} {valuta} → "
                                            f"{conv['eur']:.2f} EUR (cambio BdI {conv['tasso']} del {conv['data_cambio']})")
                         imp = conv["eur"]
                         note.append(f"Convertito da {valuta} in EUR (cambio Banca d'Italia "
                                     f"{conv['tasso']} del {conv['data_cambio']}) — verifica.")
-                    else:
+                    elif data_rif:
                         note.append(f"Cambio Banca d'Italia non disponibile: converti a mano da {valuta} in EUR.")
+                    else:
+                        note.append(f"Fattura in {valuta}: inserisci la data della fattura per "
+                                    f"convertire l'imponibile in EUR.")
                 self.data.append({
                     "_path": p,
                     "file": os.path.basename(d.get("file", "")),
@@ -691,7 +743,8 @@ class UI:
                     "data_fattura_originaria": iso_to_it(d.get("data_fattura_originaria", "") or ""),
                     "data": iso_to_it(d.get("data", "") or ""),
                     "descrizione": d.get("descrizione", "") or "",
-                    "_extra": {"fornitore": forn, "note": note}, "_note": note,
+                    "_extra": {"fornitore": forn, "note": note,
+                               "valuta": valuta, "importo_orig": importo_orig}, "_note": note,
                 })
                 n_ok += 1
                 n_note += 1 if note else 0
