@@ -1,0 +1,4 @@
+# Dipendenze per COMPILARE l'app in .exe (in aggiunta a requirements.txt)
+# Su Windows:  pip install -r requirements.txt -r requirements-build.txt
+flet[all]
+pyinstaller

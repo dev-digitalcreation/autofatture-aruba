@@ -1,0 +1,446 @@
+# -*- coding: utf-8 -*-
+"""
+Autofatture reverse charge -> Aruba  ·  interfaccia moderna (Flet)
+
+- Aggiungi i PDF con il pulsante (o cliccando la zona in alto).
+- Colonne che si adattano al testo, con scorrimento orizzontale/verticale.
+- Impostazioni a schede (Azienda, Pagamento, Fornitori, Numerazione).
+- Conversione valuta -> EUR con cambio Banca d'Italia.
+- "Genera XML" -> file pronti per il caricamento massivo su Aruba.
+Riusa il motore (motore.py, estrazione.py, cambio.py, config_io.py) senza modificarlo.
+"""
+import os
+import sys
+import csv
+
+import flet as ft
+
+BASE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, BASE)
+import estrazione
+import motore
+import config_io
+import cambio
+import version
+
+OUTPUT_DEF = config_io.OUTPUT_DIR
+ACCENT = ft.Colors.GREEN
+WARN = ft.Colors.AMBER
+
+# (chiave, etichetta, larghezza minima px)
+COLS = [
+    ("file", "PDF", 110),
+    ("denominazione", "Fornitore", 150),
+    ("id_paese", "Paese", 60),
+    ("id_codice", "P.IVA/ID", 110),
+    ("tipo_documento", "TD", 92),
+    ("imponibile", "Imponibile", 92),
+    ("aliquota_iva", "Aliq%", 62),
+    ("num_fattura_originaria", "N. fatt.", 100),
+    ("data_fattura_originaria", "Data fatt.", 100),
+    ("data", "Data reg.", 100),
+    ("descrizione", "Descrizione", 150),
+]
+CHAR_PX = 8.2
+PAD_PX = 30
+MAX_W = 440
+
+
+class UI:
+    def __init__(self, page: ft.Page):
+        self.page = page
+        self.cfg = config_io.carica_config()
+        self.data = []          # righe: dict con valori stringa + _extra/_note/_ctrl
+        self.output_dir = OUTPUT_DEF
+        self.col_w = {}         # larghezze correnti delle colonne
+        self.manual = set()     # colonne ridimensionate a mano (non piu' auto)
+        self.head_cells = {}    # riferimenti alle celle di intestazione
+
+        page.title = "Autofatture reverse charge → Aruba"
+        page.theme_mode = ft.ThemeMode.SYSTEM
+        page.theme = ft.Theme(color_scheme_seed=ft.Colors.GREEN)
+        page.window.width = 1360
+        page.window.height = 720
+        page.padding = 0
+
+        self.fp = ft.FilePicker()
+        page.services.append(self.fp)
+        self._build()
+
+    # ------------------------------------------------------------------ build
+    def _build(self):
+        self.info = ft.Text(self._info_text(), size=12, color=ft.Colors.ON_SURFACE_VARIANT)
+        self.status = ft.Text("Pronto. Aggiungi i PDF delle fatture passive.",
+                              size=12, color=ft.Colors.ON_SURFACE_VARIANT)
+        self.start_field = ft.TextField(value=str(self.cfg.get("progressivo_start", 1)),
+                                        width=90, height=46, text_size=13, dense=True, label="Primo n.")
+        self.data_field = ft.TextField(value="", width=150, height=46, text_size=13, dense=True,
+                                       label="Data autofattura", hint_text="AAAA-MM-GG")
+
+        header = ft.Container(
+            content=ft.Row([
+                ft.Row([ft.Icon(ft.Icons.RECEIPT_LONG, color=ACCENT),
+                        ft.Text("Autofatture reverse charge → Aruba",
+                                size=19, weight=ft.FontWeight.BOLD),
+                        ft.Container(ft.Text(f"v{version.__version__}", size=11,
+                                             color=ft.Colors.ON_SURFACE_VARIANT),
+                                     bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
+                                     padding=ft.Padding(left=8, top=2, right=8, bottom=2),
+                                     border_radius=10)], spacing=8,
+                       vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                ft.Row([
+                    ft.PopupMenuButton(icon=ft.Icons.BRIGHTNESS_6, items=[
+                        ft.PopupMenuItem(content="Sistema", on_click=lambda e: self._tema("system")),
+                        ft.PopupMenuItem(content="Chiaro", on_click=lambda e: self._tema("light")),
+                        ft.PopupMenuItem(content="Scuro", on_click=lambda e: self._tema("dark")),
+                    ]),
+                    ft.OutlinedButton("Impostazioni", icon=ft.Icons.SETTINGS, on_click=self.apri_impostazioni),
+                    ft.FilledTonalButton("Aggiungi PDF", icon=ft.Icons.UPLOAD_FILE, on_click=self.aggiungi_pdf),
+                    ft.FilledButton("Genera XML", icon=ft.Icons.BOLT, on_click=self.genera),
+                ], spacing=8),
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            padding=ft.Padding(left=16, top=12, right=16, bottom=8),
+        )
+
+        self.drop = ft.Container(
+            content=ft.Row([ft.Icon(ft.Icons.UPLOAD_FILE, color=ACCENT),
+                            ft.Text("Clicca qui (o «Aggiungi PDF») per selezionare le fatture passive",
+                                    size=14)],
+                           alignment=ft.MainAxisAlignment.CENTER, spacing=10),
+            height=60, border_radius=12, bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
+            border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
+            margin=ft.Margin(left=16, top=0, right=16, bottom=10),
+            alignment=ft.Alignment.CENTER, on_click=self.aggiungi_pdf, ink=True,
+        )
+
+        # tabella: Column interna (header + righe) con doppio scorrimento
+        self.table_inner = ft.Column([], spacing=4)
+        table_v = ft.Column([self.table_inner], scroll=ft.ScrollMode.AUTO, expand=True)
+        table_h = ft.Row([table_v], scroll=ft.ScrollMode.AUTO, expand=True,
+                         vertical_alignment=ft.CrossAxisAlignment.START)
+        table = ft.Container(table_h, expand=True, padding=ft.Padding(left=16, top=0, right=16, bottom=8))
+
+        footer = ft.Container(
+            content=ft.Row([
+                ft.Row([self.start_field, self.data_field,
+                        ft.OutlinedButton("Cartella output", icon=ft.Icons.FOLDER,
+                                          on_click=self.scegli_output)], spacing=10),
+                self.status,
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            padding=ft.Padding(left=16, top=6, right=16, bottom=10),
+        )
+
+        self.page.add(ft.Column([
+            header, ft.Container(self.info, padding=ft.Padding(left=16, top=0, right=16, bottom=6)),
+            self.drop, table, footer,
+        ], spacing=0, expand=True))
+        self._render_table()
+
+    def _info_text(self):
+        az = self.cfg.get("azienda", {})
+        tr = self.cfg.get("trasmittente", {})
+        return (f"Cessionario: {az.get('denominazione','?')}  ·  P.IVA {az.get('piva','?')}  ·  "
+                f"Trasmittente {tr.get('id_codice','?')} (Aruba)  ·  Dest. {self.cfg.get('codice_destinatario','?')}")
+
+    def _tema(self, mode):
+        self.page.theme_mode = {"system": ft.ThemeMode.SYSTEM, "light": ft.ThemeMode.LIGHT,
+                                "dark": ft.ThemeMode.DARK}[mode]
+        self.page.update()
+
+    # ------------------------------------------------------------ tabella
+    def _larghezze(self):
+        w = {}
+        for key, label, minw in COLS:
+            if key in self.manual:                      # colonna regolata a mano: mantieni
+                w[key] = self.col_w.get(key, minw)
+                continue
+            longest = len(label)
+            for d in self.data:
+                longest = max(longest, len(str(d.get(key, "") or "")))
+            w[key] = min(MAX_W, max(minw, int(longest * CHAR_PX + PAD_PX)))
+        self.col_w = dict(w)
+        return w
+
+    def _resize(self, key, dx):
+        try:
+            dx = float(dx or 0)
+        except (TypeError, ValueError):
+            dx = 0
+        neww = max(46, int(self.col_w.get(key, 80) + dx))
+        self.col_w[key] = neww
+        self.manual.add(key)
+        if key in self.head_cells:
+            self.head_cells[key].width = neww
+        for d in self.data:
+            c = d.get("_ctrl")
+            if c and key in c:
+                c[key].width = max(neww, 92) if key == "tipo_documento" else neww
+        self.page.update()
+
+    def _cella_header(self, key, lab, width):
+        cell = ft.Container(
+            width=width,
+            content=ft.Row([
+                ft.Container(ft.Text(lab, size=12, weight=ft.FontWeight.BOLD), expand=True),
+                ft.GestureDetector(
+                    mouse_cursor=ft.MouseCursor.RESIZE_COLUMN,
+                    on_pan_update=lambda e, k=key: self._resize(k, e.local_delta.x),
+                    content=ft.Container(width=6, height=22, border_radius=3,
+                                         bgcolor=ft.Colors.OUTLINE_VARIANT,
+                                         tooltip="Trascina per allargare/stringere"),
+                ),
+            ], spacing=2, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+        )
+        self.head_cells[key] = cell
+        return cell
+
+    def _sync(self):
+        """Riporta i valori dei controlli nelle righe-dati (prima di ricostruire)."""
+        for d in self.data:
+            c = d.get("_ctrl")
+            if c:
+                for key, _l, _m in COLS:
+                    d[key] = c[key].value
+
+    def _render_table(self):
+        w = self._larghezze()
+        self.head_cells = {}
+        header = ft.Row(
+            [self._cella_header(key, lab, w[key]) for key, lab, _m in COLS]
+            + [ft.Container(width=44)], spacing=6)
+        controls = [header]
+        for d in self.data:
+            controls.append(self._riga(d, w))
+        self.table_inner.controls = controls
+        self.page.update()
+
+    def _riga(self, d, w):
+        ctrls = {}
+        cells = []
+        warn = bool(d.get("_note"))
+        for key, lab, _m in COLS:
+            val = str(d.get(key, "") or "")
+            if key == "file":
+                c = ft.TextField(value=val, width=w[key], height=40, text_size=12, dense=True, read_only=True)
+            elif key == "tipo_documento":
+                c = ft.Dropdown(value=val or "TD17", width=max(w[key], 92), text_size=12, dense=True,
+                                options=[ft.dropdown.Option(x) for x in ("TD16", "TD17", "TD18", "TD19")])
+            else:
+                c = ft.TextField(value=val, width=w[key], height=40, text_size=12, dense=True)
+                if warn and key in ("denominazione", "id_paese", "id_codice", "imponibile") \
+                        and (val in ("", "??") or "VERIFICA" in val.upper()):
+                    c.border_color = WARN
+            ctrls[key] = c
+            cells.append(c)
+        d["_ctrl"] = ctrls
+        cells.append(ft.Container(
+            ft.IconButton(ft.Icons.CLOSE, icon_size=16, tooltip="Rimuovi",
+                          on_click=lambda e, dd=d: self._del_row(dd)), width=44))
+        return ft.Row(cells, spacing=6)
+
+    def _del_row(self, d):
+        self._sync()
+        if d in self.data:
+            self.data.remove(d)
+        self._render_table()
+        self._set_status(f"{len(self.data)} fatture in tabella.")
+
+    def _set_status(self, t):
+        self.status.value = t
+        self.page.update()
+
+    # ---------------------------------------------------------------- azioni
+    async def aggiungi_pdf(self, e=None):
+        try:
+            res = await self.fp.pick_files(dialog_title="Seleziona i PDF", allow_multiple=True,
+                                           allowed_extensions=["pdf"])
+        except Exception as ex:
+            self._set_status(f"Selezione file non disponibile: {ex}")
+            return
+        self._add_pdfs([f.path for f in res] if res else [])
+
+    def _add_pdfs(self, paths):
+        self._sync()
+        n_ok = n_note = 0
+        conversioni = []
+        for p in paths:
+            try:
+                d = estrazione.estrai_da_pdf(p, self.cfg.get("azienda", {}).get("piva", ""))
+                forn = d.get("fornitore", {})
+                imp = d.get("imponibile")
+                valuta = (d.get("valuta") or "EUR").upper()
+                note = list(d.get("note", []))
+                data_rif = d.get("data_fattura_originaria") or d.get("data")
+                if imp is not None and valuta != "EUR" and data_rif:
+                    conv = None
+                    try:
+                        conv = cambio.converti_in_eur(imp, valuta, data_rif)
+                    except Exception:
+                        conv = None
+                    note = [n for n in note if "converti l'imponibile" not in n.lower()]
+                    if conv:
+                        conversioni.append(f"{forn.get('denominazione','?')}: {imp:.2f} {valuta} → "
+                                           f"{conv['eur']:.2f} EUR (cambio BdI {conv['tasso']} del {conv['data_cambio']})")
+                        imp = conv["eur"]
+                        note.append(f"Convertito da {valuta} in EUR (cambio Banca d'Italia "
+                                    f"{conv['tasso']} del {conv['data_cambio']}) — verifica.")
+                    else:
+                        note.append(f"Cambio Banca d'Italia non disponibile: converti a mano da {valuta} in EUR.")
+                self.data.append({
+                    "file": os.path.basename(d.get("file", "")),
+                    "denominazione": forn.get("denominazione", ""),
+                    "id_paese": forn.get("id_paese", ""),
+                    "id_codice": forn.get("id_codice", ""),
+                    "tipo_documento": d.get("tipo_documento", "TD17"),
+                    "imponibile": "" if imp is None else f"{imp:.2f}",
+                    "aliquota_iva": d.get("aliquota_iva", self.cfg.get("aliquota_default", "22.00")),
+                    "num_fattura_originaria": d.get("num_fattura_originaria", "") or "",
+                    "data_fattura_originaria": d.get("data_fattura_originaria", "") or "",
+                    "data": d.get("data", "") or "",
+                    "descrizione": d.get("descrizione", "") or "",
+                    "_extra": {"fornitore": forn, "note": note}, "_note": note,
+                })
+                n_ok += 1
+                n_note += 1 if note else 0
+            except Exception as ex:
+                self._set_status(f"Errore su {os.path.basename(p)}: {ex}")
+        self._render_table()
+        msg = f"Aggiunte {n_ok} fatture" + (f" · {n_note} da verificare" if n_note else " · nessun avviso")
+        if conversioni:
+            msg += "  ·  " + "  ·  ".join(conversioni)
+        self._set_status(msg)
+
+    async def scegli_output(self, e=None):
+        try:
+            res = await self.fp.get_directory_path(dialog_title="Cartella output")
+        except Exception as ex:
+            self._set_status(f"Selezione cartella non disponibile: {ex}")
+            return
+        if res:
+            self.output_dir = res
+            self._set_status(f"Output: {res}")
+
+    def apri_impostazioni(self, e=None):
+        from settings_flet import build_settings_dialog
+        build_settings_dialog(self.page, self.cfg, on_save=self._dopo_impostazioni)
+
+    def _dopo_impostazioni(self, nuova):
+        self.cfg = nuova
+        self.info.value = self._info_text()
+        self.start_field.value = str(self.cfg.get("progressivo_start", 1))
+        self.page.update()
+        self._set_status("Impostazioni salvate.")
+
+    def genera(self, e=None):
+        if not self.data:
+            self._dialogo("Genera XML", "Aggiungi almeno una fattura.")
+            return
+        self._sync()
+        try:
+            start = int(self.start_field.value)
+        except (ValueError, TypeError):
+            self._dialogo("Numerazione", "Il primo numero sezionale deve essere un intero.")
+            return
+        os.makedirs(self.output_dir, exist_ok=True)
+        data_glob = (self.data_field.value or "").strip()
+
+        generati, errori, riepilogo = 0, [], []
+        for i, d in enumerate(self.data):
+            prog = start + i
+            forn = dict(d.get("_extra", {}).get("fornitore", {}))
+            forn.update({"denominazione": (d.get("denominazione") or "").strip(),
+                         "id_paese": (d.get("id_paese") or "").strip(),
+                         "id_codice": (d.get("id_codice") or "").strip(),
+                         "nazione": forn.get("nazione") or (d.get("id_paese") or "").strip()})
+            imp = _to_float(d.get("imponibile"))
+            if imp is None:
+                errori.append(f"Riga {i+1}: imponibile mancante/non valido.")
+                continue
+            data_reg = data_glob or (d.get("data") or "").strip()
+            if not data_reg:
+                errori.append(f"Riga {i+1}: manca la data (compila «Data autofattura»).")
+                continue
+            inv = {
+                "tipo_documento": (d.get("tipo_documento") or "TD17").strip(),
+                "data": data_reg,
+                "aliquota_iva": (d.get("aliquota_iva") or "22.00").strip(),
+                "imponibile": imp,
+                "num_fattura_originaria": (d.get("num_fattura_originaria") or "").strip(),
+                "data_fattura_originaria": (d.get("data_fattura_originaria") or "").strip() or None,
+                "fornitore": forn,
+                "righe": [{"descrizione": (d.get("descrizione") or "Servizio").strip(),
+                           "quantita": 1, "prezzo": imp}],
+            }
+            try:
+                fname, xml, _w = motore.genera_xml_bytes(inv, self.cfg, prog)
+                with open(os.path.join(self.output_dir, fname), "wb") as fh:
+                    fh.write(xml)
+                imp2, al, iva, tot = motore.calcola_importi(inv)
+                riepilogo.append([fname, inv["tipo_documento"],
+                                  motore.numero_documento(self.cfg, inv, prog), inv["data"],
+                                  forn["denominazione"], forn["id_paese"], f"{imp2}", f"{al}",
+                                  f"{iva}", f"{tot}", inv["num_fattura_originaria"]])
+                generati += 1
+            except Exception as ex:
+                errori.append(f"Riga {i+1} ({forn.get('denominazione','?')}): {ex}")
+
+        if riepilogo:
+            with open(os.path.join(self.output_dir, "riepilogo.csv"), "w", newline="", encoding="utf-8") as fh:
+                wcsv = csv.writer(fh, delimiter=";")
+                wcsv.writerow(["file_xml", "tipo_doc", "numero", "data_reg", "fornitore", "paese",
+                               "imponibile", "aliquota", "imposta", "totale", "rif_fattura"])
+                wcsv.writerows(riepilogo)
+
+        if self.cfg.get("ricorda_ultimo_numero", True) and generati:
+            self.cfg["progressivo_start"] = start + generati
+            config_io.salva_config(self.cfg)
+            self.start_field.value = str(self.cfg["progressivo_start"])
+
+        msg = f"Generati {generati} file XML in:\n{self.output_dir}"
+        if errori:
+            msg += "\n\nDa correggere:\n• " + "\n• ".join(errori)
+        self._dialogo("Genera XML", msg)
+        self._set_status(f"Generati {generati} XML" + (f" · {len(errori)} errori" if errori else " · nessun errore"))
+
+    def _dialogo(self, titolo, testo):
+        dlg = ft.AlertDialog(title=ft.Text(titolo), content=ft.Text(testo),
+                             actions=[ft.TextButton("OK", on_click=lambda e: self.page.pop_dialog())])
+        self.page.show_dialog(dlg)
+
+
+def _to_float(s):
+    s = (s or "").strip().replace(",", ".")
+    try:
+        return round(float(s), 2)
+    except ValueError:
+        return None
+
+
+def main(page: ft.Page):
+    ui = UI(page)
+    auto = os.environ.get("AUTO_PDFS")
+    if auto:
+        ui._add_pdfs([p for p in auto.split("||") if p])
+        if os.environ.get("AUTO_DATA"):
+            ui.data[0]["data"] = os.environ["AUTO_DATA"]
+        if os.environ.get("AUTO_DESC"):
+            ui.data[0]["descrizione"] = os.environ["AUTO_DESC"]
+        ui._render_table()
+        if os.environ.get("AUTO_START"):
+            ui.start_field.value = os.environ["AUTO_START"]
+        if os.environ.get("AUTO_GEN"):
+            ui.output_dir = os.environ["AUTO_GEN"]
+            ui.cfg["ricorda_ultimo_numero"] = False
+            ui.genera()
+    if os.environ.get("AUTO_RESIZE"):
+        k, dx = os.environ["AUTO_RESIZE"].split(":")
+        ui._resize(k, float(dx))
+    if os.environ.get("AUTO_SETTINGS"):
+        ui.apri_impostazioni()
+
+
+if __name__ == "__main__":
+    if os.environ.get("FLET_WEB_TEST"):
+        ft.run(main, view=ft.AppView.WEB_BROWSER, port=int(os.environ.get("PORT", "8560")), no_cdn=True)
+    else:
+        ft.run(main)

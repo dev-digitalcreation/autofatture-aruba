@@ -1,0 +1,5 @@
+a38
+lxml
+pdfplumber
+python-dateutil
+flet

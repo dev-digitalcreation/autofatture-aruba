@@ -1,0 +1,66 @@
+AUTOFATTURE REVERSE CHARGE  ->  ARUBA   (interfaccia Flet)
+=========================================================
+
+A cosa serve
+------------
+Trasforma i PDF delle fatture passive estere (servizi/beni in reverse charge)
+nelle AUTOFATTURE / INTEGRAZIONI elettroniche (TD16/TD17/TD18/TD19) in formato
+XML, pronte per il caricamento massivo sul portale Aruba Fatturazione Elettronica.
+
+Il "motore" (motore.py, estrazione.py, config_io.py) e' lo stesso validato sulle
+fatture reali: l'interfaccia Flet lo richiama soltanto.
+
+
+Come si avvia (Windows)
+-----------------------
+1. Fai doppio-click su  "Avvia.bat".
+2. Solo la PRIMA volta: se non hai Python, si apre la pagina per installarlo
+   (installa Python 3 e spunta "Add python.exe to PATH"), poi rilancia Avvia.bat.
+   L'app prepara da sola l'ambiente; il primo avvio scarica anche il client Flet
+   e puo' richiedere qualche minuto.
+3. Le volte successive parte in pochi secondi.
+
+
+Come si usa
+-----------
+1. Premi "Aggiungi PDF" e seleziona una o piu' fatture.
+   (Nota: Flet non supporta il trascinamento di file dal desktop; si usa il
+    pulsante con la finestra di selezione nativa.)
+2. L'app estrae i dati e li mostra nella tabella: CONTROLLA e correggi dove serve.
+   - Fornitori noti (Anthropic, SiteGround, Google, Microsoft, AWS...) riconosciuti
+     in automatico. I campi incerti hanno il bordo giallo.
+3. Imposta "Primo n." (numero di partenza del sezionale) e "Data autofattura"
+   (la data di registrazione applicata a tutte le autofatture generate).
+   Se attivo "ricorda ultimo numero", il numero avanza da solo.
+4. (Facoltativo) "Cartella output" per scegliere dove salvare gli XML.
+5. Premi "Genera XML". Trovi i file + "riepilogo.csv" nella cartella output.
+6. Carica gli XML su Aruba: "Carica fattura" -> selezioni i file -> invio a SdI.
+
+VALUTA ESTERA: se una fattura e' in USD/GBP/altro, l'app converte
+automaticamente l'imponibile in EUR usando il cambio ufficiale della
+Banca d'Italia del giorno della fattura (serve la connessione internet).
+La conversione e' segnalata; verifica sempre l'importo.
+
+Colonne: si adattano al testo in automatico; puoi anche regolarne la larghezza
+a mano trascinando la barretta a destra dell'intestazione. La tabella scorre
+in orizzontale e in verticale.
+
+Tema chiaro/scuro: icona in alto a destra.
+
+
+Impostazioni (pulsante "Impostazioni")
+--------------------------------------
+Tutto gestibile dall'interfaccia, senza toccare file:
+  - Azienda ............ dati del cessionario, trasmittente Aruba, destinatario
+  - Numerazione ........ pattern (es. AF01 {n}/{yy}), numero di partenza, memoria
+  - Pagamento e IVA .... blocco DatiPagamento (IBAN), aliquota di default, regime
+  - Fornitori .......... aggiungi/modifica i fornitori riconosciuti in automatico
+
+Salvate in config\azienda.json e config\fornitori.json.
+
+
+IMPORTANTE (nota fiscale)
+-------------------------
+Lo strumento PREPARA i documenti, non sostituisce il commercialista.
+Prima dell'invio verifica sempre: codice TD, aliquota/natura IVA, data di
+registrazione e numerazione del sezionale.
