@@ -63,10 +63,14 @@ class UI:
         page.title = "Reversa"
         page.theme_mode = ft.ThemeMode.SYSTEM
         page.theme = ft.Theme(color_scheme_seed=ft.Colors.GREEN)
-        page.window.width = 1360
-        page.window.height = 720
+        page.window.width = 1200
+        page.window.height = 760
+        page.window.min_width = 1000      # sotto questa soglia il layout resta usabile
+        page.window.min_height = 620
         page.padding = 0
+        page.on_resize = self._adatta     # colonne + anteprima si adattano alla finestra
 
+        self.preview_container = None
         self.fp = ft.FilePicker()
         page.services.append(self.fp)
         self._build()
@@ -141,8 +145,9 @@ class UI:
                 ft.Column([self.preview_img, self.preview_txt],
                           scroll=ft.ScrollMode.AUTO, expand=True)],
                 spacing=6, expand=True),
-            width=480, padding=ft.Padding(left=8, top=0, right=16, bottom=8),
+            width=self._preview_w(), padding=ft.Padding(left=8, top=0, right=16, bottom=8),
             border=ft.Border(left=ft.BorderSide(1, ft.Colors.OUTLINE_VARIANT)))
+        self.preview_container = preview
 
         corpo = ft.Row([table, preview], expand=True, spacing=0,
                        vertical_alignment=ft.CrossAxisAlignment.STRETCH)
@@ -178,6 +183,17 @@ class UI:
         self.page.update()
 
     # ------------------------------------------------------------ tabella
+    def _win_w(self):
+        """Larghezza contenuto corrente (logical px), con fallback."""
+        try:
+            return int(self.page.width or self.page.window.width or 1200)
+        except Exception:
+            return 1200
+
+    def _preview_w(self):
+        """Larghezza responsive del pannello anteprima."""
+        return max(300, min(560, int(self._win_w() * 0.34)))
+
     def _larghezze(self):
         w = {}
         for key, label, minw in COLS:
@@ -188,8 +204,36 @@ class UI:
             for d in self.data:
                 longest = max(longest, len(str(d.get(key, "") or "")))
             w[key] = min(MAX_W, max(minw, int(longest * CHAR_PX + PAD_PX)))
+        # Responsive: se c'e' spazio, allarga le colonne non manuali per riempire la
+        # larghezza disponibile (altrimenti restano al naturale e la tabella scorre).
+        avail = self._win_w() - self._preview_w() - 40
+        fissi = 26 + 80 + 6 * (len(COLS) + 2)           # stato + azioni + spaziature
+        flessibili = [k for k, _l, _m in COLS if k not in self.manual]
+        tot = sum(w.values()) + fissi
+        if avail > tot and flessibili:
+            extra = avail - tot
+            base = sum(w[k] for k in flessibili) or 1
+            for k in flessibili:
+                w[k] += int(extra * w[k] / base)
         self.col_w = dict(w)
         return w
+
+    def _adatta(self, e=None):
+        """Handler resize: adatta pannello anteprima e larghezze colonne alla finestra."""
+        try:
+            if self.preview_container is not None:
+                self.preview_container.width = self._preview_w()
+            w = self._larghezze()
+            for key, _l, _m in COLS:
+                if key in self.head_cells:
+                    self.head_cells[key].width = w[key]
+                for d in self.data:
+                    c = (d.get("_ctrl") or {}).get(key)
+                    if c is not None:
+                        c.width = max(w[key], 92) if key == "tipo_documento" else w[key]
+            self.page.update()
+        except Exception:
+            pass
 
     def _resize(self, key, dx):
         try:

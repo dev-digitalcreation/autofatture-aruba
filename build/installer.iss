@@ -3,7 +3,7 @@
 ; Aggiornare MyAppVersion ad ogni release (deve combaciare con version.py).
 
 #define MyAppName "Reversa"
-#define MyAppVersion "1.0.0-beta.5"
+#define MyAppVersion "1.0.0-beta.6"
 #define MyAppPublisher "Digital Creation"
 #define MyAppExeName "Reversa.exe"
 
