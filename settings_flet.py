@@ -62,7 +62,7 @@ def build_settings_dialog(page: ft.Page, cfg: dict, on_save=None,
 
     v["preset"] = ft.Dropdown(label="Intermediario / preset routing", width=280,
                               options=[ft.dropdown.Option(k) for k in config_io.ROUTING_PRESETS])
-    v["preset"].on_change = _applica_preset
+    v["preset"].on_select = _applica_preset      # Flet 0.86: Dropdown usa on_select, non on_change
     az_rows.append(ft.Text("Scegli un preset per compilare trasmittente e destinatario "
                            "(es. Aruba), oppure inseriscili a mano.", size=12,
                            color=ft.Colors.ON_SURFACE_VARIANT))
@@ -179,7 +179,7 @@ def build_settings_dialog(page: ft.Page, cfg: dict, on_save=None,
         msg_edit.value = ""
         page.update()
 
-    dd.on_change = load_forn
+    dd.on_select = load_forn                     # Flet 0.86: Dropdown usa on_select, non on_change
 
     def forn_salva_mod(e=None):
         orig = sel["chiave"]
