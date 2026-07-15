@@ -23,7 +23,7 @@ def _query(data_iso: str, valuta: str) -> dict:
     })
     req = urllib.request.Request(
         f"{BASE}?{q}",
-        headers={"Accept": "application/json", "User-Agent": "AutofattureAruba/1.0"},
+        headers={"Accept": "application/json", "User-Agent": "Reversa/1.0"},
     )
     with urllib.request.urlopen(req, timeout=8) as r:
         return json.loads(r.read().decode("utf-8"))

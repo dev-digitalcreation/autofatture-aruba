@@ -4,12 +4,13 @@ Lettura/scrittura della configurazione (azienda + fornitori).
 
 In esecuzione da sorgente: i file stanno nella cartella dell'app (config/).
 In esecuzione da .exe (frozen): i file stanno in una cartella scrivibile
-dell'utente (%APPDATA%\\AutofattureAruba), perche' dentro il pacchetto sono
+dell'utente (%APPDATA%\\Reversa), perche' dentro il pacchetto sono
 in sola lettura. Se mancano vengono creati dai default incorporati.
 """
 import os
 import sys
 import json
+import shutil
 
 # --------------------------------------------------------------------------- #
 # Default incorporati (usati alla prima esecuzione / installazione)
@@ -79,7 +80,16 @@ DEFAULT_FORNITORI = {
 # --------------------------------------------------------------------------- #
 def _base_dir() -> str:
     if getattr(sys, "frozen", False):          # in esecuzione come .exe
-        base = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "AutofattureAruba")
+        root = os.environ.get("APPDATA") or os.path.expanduser("~")
+        base = os.path.join(root, "Reversa")
+        # Migrazione una-tantum dal vecchio nome (AutofattureAruba -> Reversa):
+        # se la cartella nuova non esiste ancora ma c'e' quella vecchia, copia i dati.
+        legacy = os.path.join(root, "AutofattureAruba")
+        if not os.path.exists(base) and os.path.isdir(legacy):
+            try:
+                shutil.copytree(legacy, base)
+            except Exception:
+                pass
     else:                                       # in esecuzione da sorgente
         base = os.path.dirname(os.path.abspath(__file__))
     os.makedirs(os.path.join(base, "config"), exist_ok=True)

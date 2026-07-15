@@ -12,8 +12,8 @@ _tab*.png
 dist/
 dist_installer/
 build/*.exe
-build/AutofattureAruba/
-build/AutofattureAruba*/
+build/Reversa/
+build/Reversa*/
 *.spec
 config/azienda.json
 config/fornitori.json

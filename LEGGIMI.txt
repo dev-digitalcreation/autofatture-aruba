@@ -1,5 +1,5 @@
-AUTOFATTURE REVERSE CHARGE  ->  ARUBA   (interfaccia Flet)
-=========================================================
+REVERSA  —  AUTOFATTURE REVERSE CHARGE  ->  ARUBA   (interfaccia Flet)
+=====================================================================
 
 A cosa serve
 ------------

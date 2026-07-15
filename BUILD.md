@@ -1,11 +1,11 @@
-# Build & Release — Autofatture Aruba
+# Build & Release — Reversa
 
 Guida per creare l'`.exe` con installer, pubblicare su GitHub e abilitare gli
 aggiornamenti automatici. Pensata per essere eseguita **su Windows** (Claude Code
 in locale oppure a mano). Versione attuale: vedi `version.py` (`1.0.0-beta.1`).
 
 Il codice è già predisposto per l'exe: la configurazione viene salvata in
-`%APPDATA%\AutofattureAruba\config` (scrivibile) e i default vengono creati alla
+`%APPDATA%\Reversa\config` (scrivibile) e i default vengono creati alla
 prima esecuzione. Non serve includere `config/` nel pacchetto.
 
 ---
@@ -37,12 +37,12 @@ FatturaPA 1.2.2 e confronta col golden).
 Metodo consigliato (PyInstaller tramite Flet). Comando completo (hidden-import +
 schema XSD per la validazione della Fase 1):
 ```
-flet pack main.py --name AutofattureAruba --product-name "Autofatture Aruba" ^
+flet pack main.py --name Reversa --product-name "Reversa" ^
   --copyright "Digital Creation" --company-name "Digital Creation" ^
   --hidden-import a38 --hidden-import pdfplumber --hidden-import dateutil --hidden-import lxml ^
   --add-data "schema:schema" -y
 ```
-Output: `dist\AutofattureAruba.exe` (onefile).
+Output: `dist\Reversa.exe` (onefile).
 
 - `--hidden-import a38 pdfplumber dateutil lxml`: moduli con import dinamici che
   PyInstaller non rileva da solo.
@@ -53,15 +53,15 @@ Output: `dist\AutofattureAruba.exe` (onefile).
 (In alternativa `flet build windows` produce un'app Flutter nativa ma richiede
 Flutter SDK + Visual Studio: più pesante, non necessario per la beta.)
 
-Provare `dist\AutofattureAruba.exe`: alla prima apertura crea la config in
-`%APPDATA%\AutofattureAruba`. I campi azienda sono vuoti: inserisci i tuoi dati
+Provare `dist\Reversa.exe`: alla prima apertura crea la config in
+`%APPDATA%\Reversa`. I campi azienda sono vuoti: inserisci i tuoi dati
 (denominazione, P.IVA, indirizzo e, se vuoi, l'IBAN) in Impostazioni →
 Azienda/Pagamento prima di generare. Testare anche la conversione valuta (internet).
 
 ## 4. Creare l'installer (Inno Setup)
 - Aprire `build\installer.iss` con Inno Setup.
 - Controllare che `MyAppVersion` combaci con `version.py`.
-- Compile (F9). Output: `dist_installer\AutofattureAruba_Setup.exe`.
+- Compile (F9). Output: `dist_installer\Reversa_Setup.exe`.
 - Se hai usato una build ONEDIR invece che onefile, nel `.iss` usa la riga
   "Variante ONEDIR" al posto di quella onefile.
 
@@ -74,12 +74,12 @@ utente inserirà i propri dati in Impostazioni alla prima apertura.
 ```
 git init            # se non già fatto
 git add -A && git commit -m "beta 1"
-gh repo create autofatture-aruba --public --source=. --push
+gh repo create reversa --public --source=. --push
 ```
 Poi in `version.py` impostare:
 ```python
 GITHUB_OWNER = "TUO_USERNAME"
-GITHUB_REPO  = "autofatture-aruba"
+GITHUB_REPO  = "reversa"
 ```
 Committare la modifica.
 
@@ -107,7 +107,7 @@ Committare la modifica.
    git commit -am "v1.0.0-beta.2"
    git tag v1.0.0-beta.2
    git push --tags
-   gh release create v1.0.0-beta.2 dist_installer\AutofattureAruba_Setup.exe ^
+   gh release create v1.0.0-beta.2 dist_installer\Reversa_Setup.exe ^
      --title "v1.0.0-beta.2" --notes "Novità: ..." --prerelease
    ```
 4. Le app installate troveranno l'aggiornamento con "Controlla aggiornamenti".

@@ -47,7 +47,7 @@ def e_piu_recente(corrente: str, candidata: str) -> bool:
 
 def _fetch(url: str, token: str = ""):
     req = urllib.request.Request(
-        url, headers={"Accept": "application/vnd.github+json", "User-Agent": "AutofattureAruba"})
+        url, headers={"Accept": "application/vnd.github+json", "User-Agent": "Reversa"})
     if token:
         req.add_header("Authorization", f"Bearer {token}")
     with urllib.request.urlopen(req, timeout=12) as r:
@@ -93,13 +93,13 @@ def scarica_installer(info: dict, token: str = "", dest_dir: str = None) -> str:
     if token and info.get("asset_api"):               # repo privato: API asset + octet-stream
         url = info["asset_api"]
         headers = {"Accept": "application/octet-stream", "Authorization": f"Bearer {token}",
-                   "User-Agent": "AutofattureAruba"}
+                   "User-Agent": "Reversa"}
     else:                                             # repo pubblico
         url = info.get("asset_download")
-        headers = {"User-Agent": "AutofattureAruba"}
+        headers = {"User-Agent": "Reversa"}
     if not url:
         raise RuntimeError("Nessun installer (.exe) allegato alla release.")
-    dest = os.path.join(dest_dir, "AutofattureAruba_Setup.exe")
+    dest = os.path.join(dest_dir, "Reversa_Setup.exe")
     req = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(req, timeout=120) as r, open(dest, "wb") as f:
         f.write(r.read())

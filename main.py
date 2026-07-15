@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Autofatture reverse charge -> Aruba  ·  interfaccia moderna (Flet)
+Reversa — autofatture reverse charge -> Aruba  ·  interfaccia moderna (Flet)
 
 - Aggiungi i PDF con il pulsante (o cliccando la zona in alto).
 - Colonne che si adattano al testo, con scorrimento orizzontale/verticale.
@@ -58,7 +58,7 @@ class UI:
         self.manual = set()     # colonne ridimensionate a mano (non piu' auto)
         self.head_cells = {}    # riferimenti alle celle di intestazione
 
-        page.title = "Autofatture reverse charge → Aruba"
+        page.title = "Reversa"
         page.theme_mode = ft.ThemeMode.SYSTEM
         page.theme = ft.Theme(color_scheme_seed=ft.Colors.GREEN)
         page.window.width = 1360
@@ -82,8 +82,9 @@ class UI:
         header = ft.Container(
             content=ft.Row([
                 ft.Row([ft.Icon(ft.Icons.RECEIPT_LONG, color=ACCENT),
-                        ft.Text("Autofatture reverse charge → Aruba",
-                                size=19, weight=ft.FontWeight.BOLD),
+                        ft.Text("Reversa", size=19, weight=ft.FontWeight.BOLD),
+                        ft.Text("autofatture reverse charge → Aruba", size=12,
+                                color=ft.Colors.ON_SURFACE_VARIANT),
                         ft.Container(ft.Text(f"v{version.__version__}", size=11,
                                              color=ft.Colors.ON_SURFACE_VARIANT),
                                      bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
