@@ -3,7 +3,7 @@
 ; Aggiornare MyAppVersion ad ogni release (deve combaciare con version.py).
 
 #define MyAppName "Reversa"
-#define MyAppVersion "1.0.0-beta.6"
+#define MyAppVersion "1.0.0-beta.7"
 #define MyAppPublisher "Digital Creation"
 #define MyAppExeName "Reversa.exe"
 
@@ -20,6 +20,8 @@ Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
 ArchitecturesInstallIn64BitMode=x64compatible
+SetupIconFile=..\assets\reversa.ico
+UninstallDisplayIcon={app}\{#MyAppExeName}
 ; Non richiede admin se installato nella cartella utente; per {autopf} serve admin:
 PrivilegesRequired=admin
 

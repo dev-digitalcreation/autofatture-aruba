@@ -1,0 +1,23 @@
+<svg viewBox="0 0 760 240" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Reversa logo">
+  <defs>
+    <linearGradient id="g2" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#34C77B"/>
+      <stop offset="1" stop-color="#1C7A52"/>
+    </linearGradient>
+  </defs>
+  <rect width="760" height="240" fill="none"/>
+  <!-- icona -->
+  <g transform="translate(20,20)">
+    <rect width="200" height="200" rx="46" fill="url(#g2)"/>
+    <circle cx="100" cy="100" r="60" fill="none" stroke="#ffffff" stroke-opacity="0.30" stroke-width="11"/>
+    <path d="M97 36 L97 60 L76 48 Z" fill="#ffffff" fill-opacity="0.92"/>
+    <path d="M103 164 L103 140 L124 152 Z" fill="#ffffff" fill-opacity="0.92"/>
+    <text x="100" y="142" font-family="Arial, Helvetica, sans-serif" font-size="120"
+          font-weight="800" fill="#ffffff" text-anchor="middle">R</text>
+  </g>
+  <!-- wordmark -->
+  <text x="250" y="122" font-family="Arial, Helvetica, sans-serif" font-size="86"
+        font-weight="800" fill="#1C7A52">Reversa</text>
+  <text x="252" y="168" font-family="Arial, Helvetica, sans-serif" font-size="26"
+        font-weight="500" fill="#5b6b63" letter-spacing="2">IL REVERSE CHARGE, SEMPLICE</text>
+</svg>
