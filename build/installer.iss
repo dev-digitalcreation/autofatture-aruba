@@ -1,21 +1,21 @@
-; Inno Setup - installer per Autofatture Aruba
+; Inno Setup - installer per Reversa
 ; Compilare con Inno Setup (https://jrsoftware.org/isdl.php) DOPO aver creato l'exe con Flet.
 ; Aggiornare MyAppVersion ad ogni release (deve combaciare con version.py).
 
-#define MyAppName "Autofatture Aruba"
+#define MyAppName "Reversa"
 #define MyAppVersion "1.0.0-beta.4"
 #define MyAppPublisher "Digital Creation"
-#define MyAppExeName "AutofattureAruba.exe"
+#define MyAppExeName "Reversa.exe"
 
 [Setup]
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
-DefaultDirName={autopf}\AutofattureAruba
-DefaultGroupName=Autofatture Aruba
+DefaultDirName={autopf}\Reversa
+DefaultGroupName=Reversa
 DisableProgramGroupPage=yes
 OutputDir=..\dist_installer
-OutputBaseFilename=AutofattureAruba_Setup
+OutputBaseFilename=Reversa_Setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -30,15 +30,15 @@ Name: "italian"; MessagesFile: "compiler:Languages\Italian.isl"
 Name: "desktopicon"; Description: "Crea un'icona sul desktop"; GroupDescription: "Icone aggiuntive:"
 
 [Files]
-; --- Variante ONEFILE (flet pack -> dist\AutofattureAruba.exe) ---
-Source: "..\dist\AutofattureAruba.exe"; DestDir: "{app}"; Flags: ignoreversion
+; --- Variante ONEFILE (flet pack -> dist\Reversa.exe) ---
+Source: "..\dist\Reversa.exe"; DestDir: "{app}"; Flags: ignoreversion
 ; --- Variante ONEDIR (decommenta e usa questa se l'exe e' in una cartella) ---
-; Source: "..\dist\AutofattureAruba\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Source: "..\dist\Reversa\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\Autofatture Aruba"; Filename: "{app}\{#MyAppExeName}"
-Name: "{group}\Disinstalla Autofatture Aruba"; Filename: "{uninstallexe}"
-Name: "{commondesktop}\Autofatture Aruba"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+Name: "{group}\Reversa"; Filename: "{app}\{#MyAppExeName}"
+Name: "{group}\Disinstalla Reversa"; Filename: "{uninstallexe}"
+Name: "{commondesktop}\Reversa"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "Avvia Autofatture Aruba"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#MyAppExeName}"; Description: "Avvia Reversa"; Flags: nowait postinstall skipifsilent

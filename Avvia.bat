@@ -2,7 +2,7 @@
 chcp 65001 >nul
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
-title Autofatture reverse charge - Aruba
+title Reversa - autofatture reverse charge - Aruba
 
 REM --- 1) Cerca Python -------------------------------------------------------
 set "PY="

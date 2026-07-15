@@ -2,7 +2,7 @@
 """
 Archivio locale (SQLite) delle autofatture generate.
 
-Sta in %APPDATA%\\AutofattureAruba\\archivio.db (stessa cartella scrivibile della
+Sta in %APPDATA%\\Reversa\\archivio.db (stessa cartella scrivibile della
 config). Serve per: storico, rilevamento duplicati e numerazione sicura.
 Nessun dato personale nel repo: il DB e' solo sul PC dell'utente.
 """
