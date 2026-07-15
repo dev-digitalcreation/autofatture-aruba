@@ -62,22 +62,6 @@ def test_anomalie_numerazione():
     assert "2" in testo, an  # il salto sul 2
 
 
-def test_registro_iva():
-    _reset()
-    archivio.registra(_rec(1, "F", "A", "2026-01-15", 100, 22, 122), db_path=DB)
-    archivio.registra(_rec(2, "F", "B", "2026-01-20", 200, 44, 244), db_path=DB)
-    archivio.registra(_rec(3, "F", "C", "2026-02-05", 50, 11, 61), db_path=DB)
-    reg = archivio.registro_iva(db_path=DB)
-    per_mese = {r["mese"]: r for r in reg}
-    assert round(per_mese["2026-01"]["imponibile"], 2) == 300.0, per_mese
-    assert round(per_mese["2026-01"]["imposta"], 2) == 66.0, per_mese
-    assert per_mese["2026-01"]["n"] == 2
-    assert round(per_mese["2026-02"]["imponibile"], 2) == 50.0, per_mese
-    # filtro anno
-    assert len(archivio.registro_iva(anno=2026, db_path=DB)) == 2
-    assert archivio.registro_iva(anno=2099, db_path=DB) == []
-
-
 def _main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     fail = 0

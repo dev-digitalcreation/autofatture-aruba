@@ -97,7 +97,6 @@ class UI:
                         ft.PopupMenuItem(content="Scuro", on_click=lambda e: self._tema("dark")),
                     ]),
                     ft.OutlinedButton("Impostazioni", icon=ft.Icons.SETTINGS, on_click=self.apri_impostazioni),
-                    ft.OutlinedButton("Registro IVA", icon=ft.Icons.RECEIPT_LONG, on_click=self.apri_registro_iva),
                     ft.FilledTonalButton("Aggiungi PDF", icon=ft.Icons.UPLOAD_FILE, on_click=self.aggiungi_pdf),
                     ft.OutlinedButton("Valida", icon=ft.Icons.FACT_CHECK, on_click=self.valida_righe),
                     ft.FilledButton("Genera XML", icon=ft.Icons.BOLT, on_click=self.genera),
@@ -537,58 +536,6 @@ class UI:
                          + (f" · {len(duplicati)} duplicati" if duplicati else "")
                          + (f" · {len(errori)} errori" if errori else " · nessun errore"))
 
-    # ----- Registro IVA -------------------------------------------------
-    def apri_registro_iva(self, e=None):
-        try:
-            righe = archivio.registro_iva()
-        except Exception as ex:
-            self._dialogo("Registro IVA", f"Impossibile leggere l'archivio: {ex}")
-            return
-
-        def _t(v, w, grassetto=False):
-            return ft.Container(ft.Text(str(v), size=12,
-                                        weight=ft.FontWeight.BOLD if grassetto else None), width=w)
-
-        corpo = [ft.Row([_t("Mese", 90, True), _t("N.", 40, True), _t("Imponibile", 110, True),
-                         _t("Imposta", 100, True), _t("Totale", 110, True)]), ft.Divider(height=1)]
-        ti = tv = tt = 0.0
-        for r in righe:
-            corpo.append(ft.Row([_t(r["mese"], 90), _t(r["n"], 40),
-                                 _t(f"{r['imponibile']:.2f}", 110), _t(f"{r['imposta']:.2f}", 100),
-                                 _t(f"{r['totale']:.2f}", 110)]))
-            ti += r["imponibile"]; tv += r["imposta"]; tt += r["totale"]
-        if righe:
-            corpo.append(ft.Divider(height=1))
-            corpo.append(ft.Row([_t("Totale", 90, True), _t("", 40), _t(f"{ti:.2f}", 110, True),
-                                 _t(f"{tv:.2f}", 100, True), _t(f"{tt:.2f}", 110, True)]))
-        else:
-            corpo.append(ft.Text("Nessuna autofattura in archivio.", size=12,
-                                 color=ft.Colors.ON_SURFACE_VARIANT))
-        dlg = ft.AlertDialog(
-            title=ft.Text("Registro IVA (autofatture generate)"),
-            content=ft.Container(ft.Column(corpo, scroll=ft.ScrollMode.AUTO, spacing=4),
-                                 width=520, height=400),
-            actions=[ft.TextButton("Chiudi", on_click=lambda e: self.page.pop_dialog()),
-                     ft.FilledButton("Esporta CSV", icon=ft.Icons.DOWNLOAD,
-                                     on_click=self._esporta_registro)])
-        self.page.show_dialog(dlg)
-
-    def _esporta_registro(self, e=None):
-        try:
-            righe = archivio.registro_iva()
-            os.makedirs(self.output_dir, exist_ok=True)
-            path = os.path.join(self.output_dir, "registro_iva.csv")
-            with open(path, "w", newline="", encoding="utf-8") as fh:
-                w = csv.writer(fh, delimiter=";")
-                w.writerow(["mese", "n_autofatture", "imponibile", "imposta", "totale"])
-                for r in righe:
-                    w.writerow([r["mese"], r["n"], f"{r['imponibile']:.2f}",
-                                f"{r['imposta']:.2f}", f"{r['totale']:.2f}"])
-            self.page.pop_dialog()
-            self._set_status(f"Registro IVA esportato: {path}")
-        except Exception as ex:
-            self._set_status(f"Errore esportazione registro: {ex}")
-
     def _dialogo(self, titolo, testo):
         dlg = ft.AlertDialog(title=ft.Text(titolo), content=ft.Text(testo),
                              actions=[ft.TextButton("OK", on_click=lambda e: self.page.pop_dialog())])
@@ -643,8 +590,6 @@ def main(page: ft.Page):
             ui.genera()
     if os.environ.get("AUTO_VALIDA"):
         ui.valida_righe()
-    if os.environ.get("AUTO_REGISTRO"):
-        ui.apri_registro_iva()
 
 
 if __name__ == "__main__":

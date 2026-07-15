@@ -3,7 +3,7 @@
 Archivio locale (SQLite) delle autofatture generate.
 
 Sta in %APPDATA%\\AutofattureAruba\\archivio.db (stessa cartella scrivibile della
-config). Serve per: storico, rilevamento duplicati, numerazione sicura e Registro IVA.
+config). Serve per: storico, rilevamento duplicati e numerazione sicura.
 Nessun dato personale nel repo: il DB e' solo sul PC dell'utente.
 """
 import os
@@ -121,28 +121,6 @@ def anomalie_numerazione(db_path: str = None) -> list:
         if mancanti:
             msg.append("Salti nella numerazione: " + ", ".join(map(str, mancanti)) + ".")
     return msg
-
-
-def registro_iva(anno: int = None, db_path: str = None) -> list:
-    """
-    Somma imponibile/imposta per mese (YYYY-MM), in base a data_registrazione.
-    Ritorna lista di dict: {mese, n, imponibile, imposta, totale}.
-    """
-    con = _conn(db_path)
-    try:
-        q = ("SELECT substr(data_registrazione,1,7) AS mese, COUNT(*) AS n, "
-             "COALESCE(SUM(imponibile),0) AS imponibile, COALESCE(SUM(imposta),0) AS imposta, "
-             "COALESCE(SUM(totale),0) AS totale "
-             "FROM autofatture WHERE data_registrazione IS NOT NULL AND data_registrazione<>'' ")
-        params = []
-        if anno:
-            q += "AND substr(data_registrazione,1,4)=? "
-            params.append(str(anno))
-        q += "GROUP BY mese ORDER BY mese"
-        rows = con.execute(q, params).fetchall()
-        return [dict(r) for r in rows]
-    finally:
-        con.close()
 
 
 def elenco(limit: int = 500, db_path: str = None) -> list:
