@@ -430,16 +430,21 @@ class UI:
         return None
 
     def _icona_stato(self, d):
-        """Icona di validazione della riga: verde=valido, rosso=errore, giallo=duplicato."""
+        """Icona di validazione della riga: rosso=errore, giallo=duplicato/da verificare, verde=valido."""
+        note = d.get("_note") or []
+        motivi = ("Da verificare:\n- " + "\n- ".join(note))[:600] if note else ""
         stato = d.get("_valid")
         if stato is False:
             ic = ft.Icon(ft.Icons.ERROR, color=ft.Colors.RED, size=18,
                          tooltip="XML non valido:\n" + "\n".join(d.get("_valid_err", []))[:600])
         elif d.get("_dup"):
             dup = d["_dup"]
+            tip = (f"Gia' in archivio: n. {dup.get('numero','?')} "
+                   f"({dup.get('data_registrazione','?')})")
             ic = ft.Icon(ft.Icons.WARNING_AMBER, color=WARN, size=18,
-                         tooltip=f"Gia' in archivio: n. {dup.get('numero','?')} "
-                                 f"({dup.get('data_registrazione','?')})")
+                         tooltip=tip + (("\n\n" + motivi) if motivi else ""))
+        elif note:
+            ic = ft.Icon(ft.Icons.WARNING_AMBER, color=WARN, size=18, tooltip=motivi)
         elif stato is True:
             ic = ft.Icon(ft.Icons.CHECK_CIRCLE, color=ft.Colors.GREEN, size=18, tooltip="XML valido")
         else:
