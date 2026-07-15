@@ -50,6 +50,15 @@ PAD_PX = 30
 MAX_W = 440
 
 
+def _asset(name):
+    """Percorso di un file in assets/ (funziona da sorgente e nell'exe)."""
+    if getattr(sys, "frozen", False):
+        base = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
+    else:
+        base = BASE
+    return os.path.join(base, "assets", name)
+
+
 class UI:
     def __init__(self, page: ft.Page):
         self.page = page
@@ -93,7 +102,7 @@ class UI:
 
         header = ft.Container(
             content=ft.Row([
-                ft.Row([ft.Icon(ft.Icons.RECEIPT_LONG, color=ACCENT),
+                ft.Row([ft.Image(src=_asset("reversa.png"), width=30, height=30),
                         ft.Text("Reversa", size=19, weight=ft.FontWeight.BOLD),
                         ft.Text("autofatture reverse charge → Aruba", size=12,
                                 color=ft.Colors.ON_SURFACE_VARIANT),
@@ -111,6 +120,11 @@ class UI:
                     ]),
                     ft.IconButton(ft.Icons.VIEW_SIDEBAR, tooltip="Mostra/nascondi anteprima PDF",
                                   on_click=self.toggle_anteprima),
+                    ft.PopupMenuButton(icon=ft.Icons.MORE_VERT, tooltip="Backup / ripristino", items=[
+                        ft.PopupMenuItem(content="Esporta backup (impostazioni + fornitori)",
+                                         on_click=self.backup_esporta),
+                        ft.PopupMenuItem(content="Importa backup…", on_click=self.backup_importa),
+                    ]),
                     ft.OutlinedButton("Impostazioni", icon=ft.Icons.SETTINGS, on_click=self.apri_impostazioni),
                     ft.FilledTonalButton("Aggiungi PDF", icon=ft.Icons.UPLOAD_FILE, on_click=self.aggiungi_pdf),
                     ft.OutlinedButton("Valida", icon=ft.Icons.FACT_CHECK, on_click=self.valida_righe),
@@ -176,11 +190,58 @@ class UI:
             padding=ft.Padding(left=16, top=6, right=16, bottom=10),
         )
 
+        # dashboard: card riepilogo in alto
+        self.dash_vals = {k: ft.Text("0", size=19, weight=ft.FontWeight.BOLD)
+                          for k in ("n", "imp", "iva", "ver")}
+
+        def _card(icona, colore, vctrl, etichetta):
+            return ft.Container(
+                ft.Row([ft.Icon(icona, color=colore, size=24),
+                        ft.Column([vctrl, ft.Text(etichetta, size=11,
+                                   color=ft.Colors.ON_SURFACE_VARIANT)], spacing=0)],
+                       spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST, border_radius=12,
+                padding=ft.Padding(left=14, top=8, right=16, bottom=8), expand=True)
+
+        self.dash = ft.Container(
+            ft.Row([_card(ft.Icons.RECEIPT_LONG, ACCENT, self.dash_vals["n"], "Fatture"),
+                    _card(ft.Icons.EURO, ACCENT, self.dash_vals["imp"], "Imponibile"),
+                    _card(ft.Icons.PERCENT, ACCENT, self.dash_vals["iva"], "IVA"),
+                    _card(ft.Icons.WARNING_AMBER, WARN, self.dash_vals["ver"], "Da verificare")],
+                   spacing=10),
+            padding=ft.Padding(left=16, top=0, right=16, bottom=8))
+
         self.page.add(ft.Column([
             header, ft.Container(self.info, padding=ft.Padding(left=16, top=0, right=16, bottom=6)),
-            self.drop, corpo, footer,
+            self.dash, self.drop, corpo, footer,
         ], spacing=0, expand=True))
         self._render_table()
+
+    def _aggiorna_dashboard(self):
+        imp = iva = 0.0
+        ver = 0
+        for d in self.data:
+            v = _to_float(d.get("imponibile"))
+            if v is not None:
+                imp += v
+                al = _to_float(d.get("aliquota_iva")) or 0.0
+                iva += v * al / 100.0
+            if d.get("_note") or d.get("_valid") is False or d.get("_dup"):
+                ver += 1
+        self.dash_vals["n"].value = str(len(self.data))
+        self.dash_vals["imp"].value = f"{imp:.2f} €".replace(".", ",")
+        self.dash_vals["iva"].value = f"{iva:.2f} €".replace(".", ",")
+        self.dash_vals["ver"].value = str(ver)
+
+    def _stato_vuoto(self):
+        return ft.Container(
+            ft.Column([
+                ft.Image(src=_asset("reversa.png"), width=84, height=84, opacity=0.9),
+                ft.Text("Nessuna fattura ancora", size=18, weight=ft.FontWeight.BOLD),
+                ft.Text("Premi «Aggiungi PDF» (o clicca la zona qui sopra) per iniziare.",
+                        size=13, color=ft.Colors.ON_SURFACE_VARIANT),
+            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10),
+            padding=ft.Padding(left=40, top=54, right=40, bottom=0))
 
     def _info_text(self):
         az = self.cfg.get("azienda", {})
@@ -299,6 +360,12 @@ class UI:
                     d[key] = c[key].value
 
     def _render_table(self):
+        self._aggiorna_dashboard()
+        if not self.data:
+            self.head_cells = {}
+            self.table_inner.controls = [self._stato_vuoto()]
+            self.page.update()
+            return
         w = self._larghezze()
         self.head_cells = {}
         header = ft.Row(
@@ -346,7 +413,20 @@ class UI:
             ]),
         ], spacing=0)
         cells.append(ft.Container(azioni, width=80))
-        return ft.Row([self._icona_stato(d)] + cells, spacing=6)
+        riga = ft.Row([self._icona_stato(d)] + cells, spacing=6,
+                      vertical_alignment=ft.CrossAxisAlignment.CENTER)
+        return ft.Container(riga, bgcolor=self._colore_riga(d), border_radius=6,
+                            padding=ft.Padding(left=0, top=2, right=0, bottom=2))
+
+    def _colore_riga(self, d):
+        """Tinta di sfondo della riga per stato: verde=valida, giallo=da verificare, rosso=errore."""
+        if d.get("_valid") is False:
+            return ft.Colors.with_opacity(0.11, ft.Colors.RED)
+        if d.get("_dup") or d.get("_note"):
+            return ft.Colors.with_opacity(0.11, ft.Colors.AMBER)
+        if d.get("_valid") is True:
+            return ft.Colors.with_opacity(0.10, ft.Colors.GREEN)
+        return None
 
     def _icona_stato(self, d):
         """Icona di validazione della riga: verde=valido, rosso=errore, giallo=duplicato."""
@@ -638,6 +718,100 @@ class UI:
         self.page.update()
         self._set_status("Impostazioni salvate.")
 
+    # ---------------------------------------------------- Fase 3: prima esperienza
+    def wizard_primo_avvio(self, e=None):
+        az = dict(self.cfg.get("azienda", {}))
+        pag = self.cfg.get("pagamento") or {}
+        f = {
+            "denominazione": ft.TextField(label="Denominazione / Ragione sociale",
+                                          value=az.get("denominazione", ""), width=440),
+            "piva": ft.TextField(label="P.IVA", value=az.get("piva", ""), width=200),
+            "codice_fiscale": ft.TextField(label="Codice fiscale", value=az.get("codice_fiscale", ""), width=210),
+            "indirizzo": ft.TextField(label="Indirizzo", value=az.get("indirizzo", ""), width=300),
+            "numero_civico": ft.TextField(label="N.", value=az.get("numero_civico", ""), width=90),
+            "cap": ft.TextField(label="CAP", value=az.get("cap", ""), width=110),
+            "comune": ft.TextField(label="Comune", value=az.get("comune", ""), width=210),
+            "provincia": ft.TextField(label="Prov.", value=az.get("provincia", ""), width=90),
+            "iban": ft.TextField(label="IBAN (facoltativo)", value=pag.get("iban", ""), width=360),
+        }
+
+        def salva(e=None):
+            self.cfg.setdefault("azienda", {}).update({
+                "denominazione": f["denominazione"].value.strip(), "piva": f["piva"].value.strip(),
+                "codice_fiscale": (f["codice_fiscale"].value or f["piva"].value).strip(),
+                "indirizzo": f["indirizzo"].value.strip(), "numero_civico": f["numero_civico"].value.strip(),
+                "cap": f["cap"].value.strip(), "comune": f["comune"].value.strip(),
+                "provincia": f["provincia"].value.strip(), "id_paese": "IT", "nazione": "IT"})
+            iban = (f["iban"].value or "").strip()
+            if iban:
+                p = self.cfg.get("pagamento") or {"condizioni": "TP02", "modalita": "MP05", "istituto": ""}
+                p["iban"] = iban
+                self.cfg["pagamento"] = p
+            config_io.salva_config(self.cfg)
+            self.info.value = self._info_text()
+            self.page.pop_dialog()
+            self._set_status("Dati azienda salvati. Modificabili in Impostazioni.")
+            self.page.update()
+
+        dlg = ft.AlertDialog(
+            title=ft.Row([ft.Image(src=_asset("reversa.png"), width=28, height=28),
+                          ft.Text("Benvenuto in Reversa")], spacing=8),
+            content=ft.Container(ft.Column([
+                ft.Text("Inserisci i dati della tua azienda (cessionario). Potrai cambiarli quando vuoi in Impostazioni.",
+                        size=12, color=ft.Colors.ON_SURFACE_VARIANT),
+                f["denominazione"], ft.Row([f["piva"], f["codice_fiscale"]]),
+                ft.Row([f["indirizzo"], f["numero_civico"]]),
+                ft.Row([f["cap"], f["comune"], f["provincia"]]), f["iban"],
+            ], scroll=ft.ScrollMode.AUTO, spacing=10, tight=True), width=490, height=430),
+            actions=[ft.TextButton("Salta", on_click=lambda e: self.page.pop_dialog()),
+                     ft.FilledButton("Salva", icon=ft.Icons.CHECK, on_click=salva)])
+        self.page.show_dialog(dlg)
+
+    async def backup_esporta(self, e=None):
+        import json
+        dati = {"config": self.cfg, "fornitori": config_io.carica_fornitori()}
+        try:
+            dest = await self.fp.save_file(dialog_title="Esporta backup (JSON)",
+                                           file_name="reversa_backup.json",
+                                           file_type=ft.FilePickerFileType.CUSTOM, allowed_extensions=["json"])
+        except Exception:
+            dest = os.path.join(self.output_dir, "reversa_backup.json")
+        if not dest:
+            return
+        if not dest.lower().endswith(".json"):
+            dest += ".json"
+        try:
+            os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
+            with open(dest, "w", encoding="utf-8") as fh:
+                json.dump(dati, fh, ensure_ascii=False, indent=2)
+            self._dialogo("Backup", f"Impostazioni e fornitori esportati in:\n{dest}")
+        except Exception as ex:
+            self._set_status(f"Errore backup: {ex}")
+
+    async def backup_importa(self, e=None):
+        import json
+        try:
+            res = await self.fp.pick_files(dialog_title="Importa backup (JSON)", allowed_extensions=["json"])
+        except Exception as ex:
+            self._set_status(f"Selezione non disponibile: {ex}")
+            return
+        if not res:
+            return
+        try:
+            with open(res[0].path, encoding="utf-8") as fh:
+                dati = json.load(fh)
+            if isinstance(dati.get("config"), dict):
+                self.cfg = dati["config"]
+                config_io.salva_config(self.cfg)
+            if dati.get("fornitori"):
+                config_io.salva_fornitori(dati["fornitori"])
+            self.info.value = self._info_text()
+            self.start_field.value = str(self._numero_suggerito())
+            self.page.update()
+            self._dialogo("Ripristino", "Impostazioni e fornitori importati con successo.")
+        except Exception as ex:
+            self._dialogo("Ripristino", f"File di backup non valido:\n{ex}")
+
     # ----- numerazione sicura / costruzione invoice / archivio ----------
     def _start_int(self):
         try:
@@ -861,6 +1035,11 @@ def it_to_iso(s):
 
 def main(page: ft.Page):
     ui = UI(page)
+    # wizard di primo avvio se i dati azienda sono vuoti (saltato in modalita' test)
+    _test = any(os.environ.get(k) for k in ("AUTO_PDFS", "AUTO_FAKEROW", "AUTO_SETTINGS",
+                                            "AUTO_WATCH", "AUTO_PREVIEW", "AUTO_POPUP", "AUTO_SAVEFORN"))
+    if not _test and not (ui.cfg.get("azienda", {}).get("denominazione") or "").strip():
+        ui.wizard_primo_avvio()
     auto = os.environ.get("AUTO_PDFS")
     if auto:
         ui._add_pdfs([p for p in auto.split("||") if p])
@@ -906,6 +1085,8 @@ def main(page: ft.Page):
         ui.apri_anteprima_popup()
     if os.environ.get("AUTO_SAVEFORN") and ui.data:
         ui.salva_fornitore_da_riga(ui.data[0])
+    if os.environ.get("AUTO_WIZARD"):
+        ui.wizard_primo_avvio()
     if os.environ.get("AUTO_WATCH"):            # avvia la sorveglianza su una cartella (test)
         ui._watch_dir = os.environ["AUTO_WATCH"]
         ui._watch_seen = set()

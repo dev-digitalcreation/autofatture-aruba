@@ -38,9 +38,9 @@ Metodo consigliato (PyInstaller tramite Flet). Comando completo (hidden-import +
 schema XSD per la validazione della Fase 1):
 ```
 flet pack main.py --name Reversa --product-name "Reversa" ^
-  --copyright "Digital Creation" --company-name "Digital Creation" ^
+  --copyright "Digital Creation" --company-name "Digital Creation" --icon assets/reversa.ico ^
   --hidden-import a38 --hidden-import pdfplumber --hidden-import dateutil --hidden-import lxml ^
-  --add-data "schema:schema" -y
+  --add-data "schema:schema" --add-data "assets:assets" -y
 ```
 Output: `dist\Reversa.exe` (onefile).
 
@@ -48,7 +48,8 @@ Output: `dist\Reversa.exe` (onefile).
   PyInstaller non rileva da solo.
 - `--add-data "schema:schema"`: **necessario** — include la cartella `schema/`
   (XSD FatturaPA) usata da `validazione.py` per validare l'XML nell'app.
-  Senza, la validazione nell'exe non funziona.
+- `--add-data "assets:assets"`: **necessario** — logo/immagini usati dall'interfaccia
+  (header, wizard, stato vuoto). `--icon assets/reversa.ico`: icona dell'exe.
 
 (In alternativa `flet build windows` produce un'app Flutter nativa ma richiede
 Flutter SDK + Visual Studio: più pesante, non necessario per la beta.)
