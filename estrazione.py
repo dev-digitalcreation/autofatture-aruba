@@ -381,6 +381,35 @@ def _trova_descrizione(testo: str) -> str:
 # --------------------------------------------------------------------------- #
 # API principale
 # --------------------------------------------------------------------------- #
+def _cod_norm(s):
+    """Normalizza un codice/P.IVA per il confronto: solo lettere/cifre minuscole."""
+    return re.sub(r"[^a-z0-9]", "", (s or "").lower())
+
+
+def _fornitore_noto(testo: str, forn: dict):
+    """Riconosce un fornitore salvato (importato o compilato) dal testo della fattura.
+    Ritorna (chiave, anagrafica) oppure (None, None).
+
+    Priorità:
+      1) P.IVA / id_codice — molto affidabile: il numero compare in fattura, quindi
+         riconosce anche i fornitori la cui 'chiave' è la denominazione completa
+         (es. importati da Aruba) che raramente compare identica nel testo;
+      2) 'chiave' — testo cercato nel PDF (per i fornitori senza P.IVA utile).
+    """
+    tl = (testo or "").lower()
+    tnorm = _cod_norm(tl)
+    # 1) per P.IVA / id_codice (esclude il placeholder condiviso OO99999999999)
+    for chiave, ana in forn.items():
+        cod = _cod_norm(ana.get("id_codice"))
+        if len(cod) >= 6 and cod != "oo99999999999" and cod in tnorm:
+            return chiave, ana
+    # 2) per chiave testuale
+    for chiave, ana in forn.items():
+        if chiave and chiave in tl:
+            return chiave, ana
+    return None, None
+
+
 def estrai_da_pdf(path: str, piva_cessionario: str = "") -> dict:
     testo = _estrai_testo(path)
     tl = testo.lower()
@@ -392,12 +421,8 @@ def estrai_da_pdf(path: str, piva_cessionario: str = "") -> dict:
         "data": None, "imponibile": None, "descrizione": "", "fornitore": {},
     }
 
-    # 1) fornitore noto?
-    noto = None
-    for chiave, ana in carica_fornitori().items():
-        if chiave and chiave in tl:
-            noto = ana
-            break
+    # 1) fornitore noto? (prima per P.IVA presente in fattura, poi per chiave testuale)
+    _chiave_noto, noto = _fornitore_noto(testo, carica_fornitori())
 
     if noto:
         dati["fornitore"] = {k: v for k, v in noto.items() if k != "tipo_documento"}
