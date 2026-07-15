@@ -152,12 +152,14 @@ def _norm_h(h) -> str:
 
 # Alias di intestazione -> colonna canonica (tollerante a maiuscole/spazi/sinonimi).
 _ALIAS_F = {_norm_h(c): c for c in FORNITORI_COLS}
+# NB: "Nome"/"Cognome" NON mappano su denominazione: nell'export Aruba sono
+# colonne distinte da "Denominazione" (nome/cognome della persona fisica).
 _ALIAS_F.update({
     "paese": "id_paese",
     "piva": "id_codice", "partitaiva": "id_codice", "vat": "id_codice", "idvat": "id_codice",
     "ncivico": "numero_civico", "civico": "numero_civico",
     "tipodoc": "tipo_documento", "td": "tipo_documento", "tipo": "tipo_documento",
-    "denom": "denominazione", "nome": "denominazione", "fornitore": "denominazione", "ragionesociale": "denominazione",
+    "denom": "denominazione", "fornitore": "denominazione", "ragionesociale": "denominazione",
 })
 
 
@@ -181,8 +183,13 @@ def _righe_a_fornitori(righe) -> dict:
         r = {}
         for k, v in raw.items():
             col = _ALIAS_F.get(_norm_h(k))
-            if col:
-                r[col] = "" if v is None else v
+            if not col:
+                continue
+            v = "" if v is None else v
+            # Più intestazioni possono mappare sulla stessa colonna: tieni il
+            # primo valore non vuoto, non farlo sovrascrivere da uno vuoto.
+            if col not in r or (not str(r[col]).strip() and str(v).strip()):
+                r[col] = v
         chiave = str(r.get("chiave", "")).strip().lower()
         denom = str(r.get("denominazione", "")).strip()
         if not chiave:

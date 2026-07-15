@@ -65,6 +65,40 @@ def test_import_virgola():
     assert back.get("beta", {}).get("denominazione") == "Beta Inc"
 
 
+def test_import_struttura_aruba():
+    """Import di un export in stile Aruba: 18 colonne con Denominazione/Nome/
+    Cognome distinte. La colonna 'Nome' (vuota o valorizzata) NON deve
+    sovrascrivere la Denominazione. NB: dati completamente fittizi."""
+    import openpyxl
+    p = _tmp("aruba.xlsx")
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["Codice fornitore", "Email", "PEC", "ID Paese", "Partita Iva",
+               "Codice Fiscale", "Denominazione", "Nome", "Cognome", "Regime Fiscale",
+               "Nazione", "CAP", "Provincia", "Comune", "Indirizzo", "Numero civico",
+               "Telefono", "Invio codice destinatario"])
+    # azienda (Nome/Cognome vuoti)
+    ws.append(["", "", "", "IT", "IT11111111111", "IT11111111111", "Alfa S.r.l.", "", "",
+               "RF01", "IT", "20100", "MI", "Milano", "Via Esempio", "1", "", "Non inviato"])
+    # estero reverse charge
+    ws.append(["", "", "", "IE", "IE1234567AA", "", "Beta Cloud Ltd.", "", "",
+               "RF18", "IE", "00000", "", "Dublin", "1 Example Street", "", "", "Non inviato"])
+    # persona fisica: Denominazione piena, Nome/Cognome pure (non devono clobberare)
+    ws.append(["", "", "", "IT", "IT22222222222", "", "Rossi Mario", "Mario", "Rossi",
+               "RF01", "IT", "20100", "MI", "Milano", "Via Prova", "2", "", "Non inviato"])
+    wb.save(p)
+
+    back = config_io.importa_fornitori(p)
+    assert len(back) == 3, back
+    assert back["alfa s.r.l."]["id_codice"] == "IT11111111111"
+    assert back["alfa s.r.l."]["comune"] == "Milano"
+    assert back["beta cloud ltd."]["id_paese"] == "IE"
+    assert back["beta cloud ltd."]["id_codice"] == "IE1234567AA"
+    # la colonna "Nome" NON ha sovrascritto la denominazione
+    assert "rossi mario" in back, list(back)
+    assert back["rossi mario"]["denominazione"] == "Rossi Mario"
+
+
 def _main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     fail = 0
