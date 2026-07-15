@@ -41,9 +41,27 @@ def build_settings_dialog(page: ft.Page, cfg: dict, on_save=None):
     for k, lab in az_campi:
         v[f"az_{k}"] = _campo(lab, az.get(k)); az_rows.append(v[f"az_{k}"])
     az_rows.append(_titolo("Trasmittente / recapito SdI"))
-    v["tr_paese"] = _campo("Trasmittente IdPaese", tr.get("id_paese", "IT")); az_rows.append(v["tr_paese"])
-    v["tr_cod"] = _campo("Trasmittente IdCodice (Aruba)", tr.get("id_codice", "")); az_rows.append(v["tr_cod"])
-    v["dest"] = _campo("Codice destinatario", cfg.get("codice_destinatario", "0000000")); az_rows.append(v["dest"])
+    v["tr_paese"] = _campo("Trasmittente IdPaese", tr.get("id_paese", "IT"))
+    v["tr_cod"] = _campo("Trasmittente IdCodice", tr.get("id_codice", ""))
+    v["dest"] = _campo("Codice destinatario", cfg.get("codice_destinatario", "0000000"))
+
+    def _applica_preset(e=None):
+        p = config_io.ROUTING_PRESETS.get(v["preset"].value)
+        if not p:
+            return
+        v["tr_paese"].value = p.get("trasmittente_id_paese", "IT")
+        v["tr_cod"].value = p.get("trasmittente_id_codice", "")
+        v["dest"].value = p.get("codice_destinatario", "0000000")
+        page.update()
+
+    v["preset"] = ft.Dropdown(label="Intermediario / preset routing", width=280,
+                              options=[ft.dropdown.Option(k) for k in config_io.ROUTING_PRESETS])
+    v["preset"].on_change = _applica_preset
+    az_rows.append(ft.Text("Scegli un preset per compilare trasmittente e destinatario "
+                           "(es. Aruba), oppure inseriscili a mano.", size=12,
+                           color=ft.Colors.ON_SURFACE_VARIANT))
+    az_rows.append(v["preset"])
+    az_rows.append(v["tr_paese"]); az_rows.append(v["tr_cod"]); az_rows.append(v["dest"])
     v["pec"] = _campo("PEC destinatario", cfg.get("pec_destinatario")); az_rows.append(v["pec"])
     v["soggetto"] = _campo("SoggettoEmittente", cfg.get("soggetto_emittente", "CC")); az_rows.append(v["soggetto"])
     view_az = _scheda(az_rows)
@@ -119,7 +137,7 @@ def build_settings_dialog(page: ft.Page, cfg: dict, on_save=None):
     ])
 
     # ---------------- scheda NUMERAZIONE ----------------
-    v["pattern"] = _campo("Pattern numero", num.get("pattern", "AF01 {n}/{yy}"))
+    v["pattern"] = _campo("Pattern numero", num.get("pattern", "{n}/{yy}"))
     v["start"] = _campo("Numero di partenza", cfg.get("progressivo_start", 1), 160)
     v["prefix"] = _campo("Prefisso nome file", cfg.get("filename_prefix", ""))
     v["ricorda"] = ft.Switch(label="Ricorda l'ultimo numero usato (avanza da solo)",

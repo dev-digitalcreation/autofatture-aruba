@@ -16,19 +16,30 @@ import json
 # --------------------------------------------------------------------------- #
 # NB: default GENERICI (nessun dato personale, il repo e' pubblico).
 # Ogni utente inserisce i propri dati azienda/IBAN in Impostazioni alla prima apertura.
-# I valori di trasmittente/codice destinatario sono quelli pubblici di Aruba,
-# uguali per tutti gli utenti che trasmettono tramite Aruba.
+# Trasmittente e canale SdI NON sono precompilati: l'utente sceglie il proprio
+# intermediario dai preset qui sotto (Impostazioni -> Azienda -> "preset routing").
+
+# Preset di routing/intermediario SdI (trasmittente + canale destinatario).
+# Sono identificativi PUBBLICI dell'intermediario, uguali per tutti i suoi utenti.
+# Estendibile: aggiungere qui altri intermediari in futuro.
+ROUTING_PRESETS = {
+    "Aruba": {
+        "trasmittente_id_paese": "IT",
+        "trasmittente_id_codice": "01879020517",
+        "codice_destinatario": "KRRH6B9",
+    },
+}
+
 DEFAULT_CONFIG = {
     "azienda": {
         "denominazione": "", "id_paese": "IT", "piva": "", "codice_fiscale": "",
         "indirizzo": "", "numero_civico": "", "cap": "", "comune": "", "provincia": "", "nazione": "IT",
     },
-    "trasmittente": {"id_paese": "IT", "id_codice": "01879020517"},   # Aruba S.p.A.
-    "codice_destinatario": "KRRH6B9",                                 # canale Aruba
+    "trasmittente": {"id_paese": "IT", "id_codice": ""},
+    "codice_destinatario": "0000000",
     "soggetto_emittente": "CC",
-    "regime_fiscale_cedente": "RF18",
     "importo_totale_documento": True,
-    "numerazione": {"pattern": "AF {n}/{yy}"},
+    "numerazione": {"pattern": "{n}/{yy}"},
     "progressivo_start": 1,
     "filename_prefix": None,
     "ricorda_ultimo_numero": True,

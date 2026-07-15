@@ -140,7 +140,7 @@ class UI:
         az = self.cfg.get("azienda", {})
         tr = self.cfg.get("trasmittente", {})
         return (f"Cessionario: {az.get('denominazione','?')}  ·  P.IVA {az.get('piva','?')}  ·  "
-                f"Trasmittente {tr.get('id_codice','?')} (Aruba)  ·  Dest. {self.cfg.get('codice_destinatario','?')}")
+                f"Trasmittente {tr.get('id_codice','?')}  ·  Dest. {self.cfg.get('codice_destinatario','?')}")
 
     def _tema(self, mode):
         self.page.theme_mode = {"system": ft.ThemeMode.SYSTEM, "light": ft.ThemeMode.LIGHT,

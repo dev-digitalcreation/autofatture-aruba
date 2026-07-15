@@ -52,7 +52,7 @@ Impostazioni (pulsante "Impostazioni")
 --------------------------------------
 Tutto gestibile dall'interfaccia, senza toccare file:
   - Azienda ............ dati del cessionario, trasmittente Aruba, destinatario
-  - Numerazione ........ pattern (es. AF01 {n}/{yy}), numero di partenza, memoria
+  - Numerazione ........ pattern (es. {n}/{yy}), numero di partenza, memoria
   - Pagamento e IVA .... blocco DatiPagamento (IBAN), aliquota di default, regime
   - Fornitori .......... aggiungi/modifica i fornitori riconosciuti in automatico
 
