@@ -37,7 +37,7 @@ COLS = [
     ("denominazione", "Fornitore", 150),
     ("id_paese", "Paese", 60),
     ("id_codice", "P.IVA/ID", 110),
-    ("tipo_documento", "TD", 92),
+    ("tipo_documento", "TD", 104),
     ("imponibile", "Imponibile", 92),
     ("aliquota_iva", "Aliq%", 62),
     ("num_fattura_originaria", "N. fatt.", 100),
@@ -88,8 +88,8 @@ class UI:
                               size=12, color=ft.Colors.ON_SURFACE_VARIANT)
         self.start_field = ft.TextField(value=str(self._numero_suggerito()),
                                         width=90, height=46, text_size=13, dense=True, label="Primo n.")
-        self.data_field = ft.TextField(value="", width=150, height=46, text_size=13, dense=True,
-                                       label="Data autofattura", hint_text="AAAA-MM-GG")
+        self.data_field = ft.TextField(value="", width=190, height=46, text_size=13, dense=True,
+                                       label="Data autofattura", hint_text="GG-MM-AAAA")
 
         header = ft.Container(
             content=ft.Row([
@@ -252,7 +252,7 @@ class UI:
                 for d in self.data:
                     c = (d.get("_ctrl") or {}).get(key)
                     if c is not None:
-                        c.width = max(w[key], 92) if key == "tipo_documento" else w[key]
+                        c.width = max(w[key], 104) if key == "tipo_documento" else w[key]
             self.page.update()
         except Exception:
             pass
@@ -270,7 +270,7 @@ class UI:
         for d in self.data:
             c = d.get("_ctrl")
             if c and key in c:
-                c[key].width = max(neww, 92) if key == "tipo_documento" else neww
+                c[key].width = max(neww, 104) if key == "tipo_documento" else neww
         self.page.update()
 
     def _cella_header(self, key, lab, width):
@@ -308,6 +308,7 @@ class UI:
         controls = [header]
         for d in self.data:
             controls.append(self._riga(d, w))
+        controls.append(ft.Container(height=16))     # spazio per la scrollbar orizzontale
         self.table_inner.controls = controls
         self.page.update()
 
@@ -320,7 +321,8 @@ class UI:
             if key == "file":
                 c = ft.TextField(value=val, width=w[key], height=40, text_size=12, dense=True, read_only=True)
             elif key == "tipo_documento":
-                c = ft.Dropdown(value=val or "TD17", width=max(w[key], 92), text_size=12, dense=True,
+                c = ft.Dropdown(value=val or "TD17", width=max(w[key], 104), height=40, text_size=12,
+                                dense=True, content_padding=ft.Padding(left=8, top=0, right=4, bottom=0),
                                 options=[ft.dropdown.Option(x) for x in ("TD16", "TD17", "TD18", "TD19")])
             else:
                 c = ft.TextField(value=val, width=w[key], height=40, text_size=12, dense=True)
@@ -484,8 +486,8 @@ class UI:
         if key in ("data", "data_fattura_originaria"):
             if v == "":
                 return True, ""
-            if not re.match(r"^\d{4}-\d{2}-\d{2}$", v):
-                return False, "Data in formato AAAA-MM-GG."
+            if not re.match(r"^\d{1,2}[-/.]\d{1,2}[-/.]\d{4}$", v):
+                return False, "Data in formato GG-MM-AAAA."
             return True, ""
         if key in ("imponibile", "aliquota_iva"):
             if v == "":
@@ -600,8 +602,8 @@ class UI:
                     "imponibile": "" if imp is None else f"{imp:.2f}",
                     "aliquota_iva": d.get("aliquota_iva", self.cfg.get("aliquota_default", "22.00")),
                     "num_fattura_originaria": d.get("num_fattura_originaria", "") or "",
-                    "data_fattura_originaria": d.get("data_fattura_originaria", "") or "",
-                    "data": d.get("data", "") or "",
+                    "data_fattura_originaria": iso_to_it(d.get("data_fattura_originaria", "") or ""),
+                    "data": iso_to_it(d.get("data", "") or ""),
                     "descrizione": d.get("descrizione", "") or "",
                     "_extra": {"fornitore": forn, "note": note}, "_note": note,
                 })
@@ -661,7 +663,8 @@ class UI:
         imp = _to_float(d.get("imponibile"))
         if imp is None:
             return None, "imponibile mancante/non valido."
-        data_reg = data_glob or (d.get("data") or "").strip()
+        # le date arrivano dall'interfaccia in GG-MM-AAAA: convertile in ISO per il motore
+        data_reg = it_to_iso(data_glob) or it_to_iso(d.get("data") or "")
         if not data_reg:
             return None, "manca la data (compila «Data autofattura»)."
         inv = {
@@ -670,7 +673,7 @@ class UI:
             "aliquota_iva": (d.get("aliquota_iva") or "22.00").strip(),
             "imponibile": imp,
             "num_fattura_originaria": (d.get("num_fattura_originaria") or "").strip(),
-            "data_fattura_originaria": (d.get("data_fattura_originaria") or "").strip() or None,
+            "data_fattura_originaria": it_to_iso(d.get("data_fattura_originaria") or "") or None,
             "fornitore": forn,
             "righe": [{"descrizione": (d.get("descrizione") or "Servizio").strip(),
                        "quantita": 1, "prezzo": imp}],
@@ -833,6 +836,29 @@ def _to_float(s):
         return None
 
 
+# --------------------------------------------------------------------------- #
+# Date: nell'interfaccia si usa il formato italiano GG-MM-AAAA, ma il motore e
+# l'XML FatturaPA vogliono ISO AAAA-MM-GG. Conversione ai bordi (UI <-> motore).
+# --------------------------------------------------------------------------- #
+def iso_to_it(s):
+    """AAAA-MM-GG -> GG-MM-AAAA (lascia com'e' se non e' ISO/e' vuoto)."""
+    m = re.match(r"^\s*(\d{4})-(\d{2})-(\d{2})\s*$", s or "")
+    return f"{m.group(3)}-{m.group(2)}-{m.group(1)}" if m else (s or "")
+
+
+def it_to_iso(s):
+    """GG-MM-AAAA (o GG/MM/AAAA) -> AAAA-MM-GG. Passthrough se gia' ISO; '' se vuoto."""
+    s = (s or "").strip()
+    if not s:
+        return ""
+    m = re.match(r"^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$", s)
+    if m:
+        return f"{m.group(3)}-{int(m.group(2)):02d}-{int(m.group(1)):02d}"
+    if re.match(r"^\d{4}-\d{2}-\d{2}$", s):        # gia' ISO
+        return s
+    return s                                        # non riconosciuto: lo blocca la validazione/XSD
+
+
 def main(page: ft.Page):
     ui = UI(page)
     auto = os.environ.get("AUTO_PDFS")
@@ -859,7 +885,7 @@ def main(page: ft.Page):
             "file": "esempio.pdf", "denominazione": "Foreign Supplier Ltd", "id_paese": "IE",
             "id_codice": "IE1234567AB", "tipo_documento": "TD17", "imponibile": "100.00",
             "aliquota_iva": "22.00", "num_fattura_originaria": "TEST-001",
-            "data_fattura_originaria": "2026-02-28", "data": "2026-03-15",
+            "data_fattura_originaria": "28-02-2026", "data": "15-03-2026",
             "descrizione": "Servizio di esempio",
             "_extra": {"fornitore": {"denominazione": "Foreign Supplier Ltd", "id_paese": "IE",
                                      "id_codice": "IE1234567AB", "indirizzo": "1 Test Street",
